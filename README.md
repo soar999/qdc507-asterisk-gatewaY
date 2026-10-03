@@ -1,0 +1,1 @@
+# qdc507-asterisk-gatewaY
