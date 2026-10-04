@@ -1,0 +1,63 @@
+FROM debian:trixie AS builder
+
+ARG DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl git cmake python3 \
+    build-essential autoconf automake libtool pkg-config \
+    binutils-dev libcurl4-openssl-dev libedit-dev libgsm1-dev \
+    libicu-dev libjansson-dev libncurses-dev libogg-dev \
+    libpopt-dev libpqxx-dev libresample1-dev libspandsp-dev \
+    libspeex-dev libspeexdsp-dev libsqlite3-dev libssl-dev \
+    libvorbis-dev libxml2-dev libxslt1-dev \
+    odbcinst unixodbc unixodbc-dev uuid uuid-dev \
+    xmlstarlet libsrtp2-dev portaudio19-dev libasound2-dev \
+ && rm -rf /var/lib/apt/lists/*
+
+# Asterisk 22.10.1 headers
+WORKDIR /usr/src/asterisk
+
+RUN curl -fsSL -o /tmp/asterisk.tar.gz \
+    https://downloads.asterisk.org/pub/telephony/asterisk/releases/asterisk-22.10.1.tar.gz \
+ && tar --strip-components=1 -xzf /tmp/asterisk.tar.gz \
+ && rm /tmp/asterisk.tar.gz \
+ && ./configure --with-pjproject-bundled --with-ssl=ssl --with-crypto \
+ && make menuselect/menuselect menuselect-tree menuselect.makeopts \
+ && menuselect/menuselect --disable BUILD_NATIVE menuselect.makeopts \
+ && make include/asterisk/buildopts.h include/asterisk/build.h
+
+# External-UAC capable chan_quectel
+WORKDIR /usr/src
+
+# Pin the exact upstream master commit used by the known-good QDC507 build.
+# Verified against the preserved local source tree by SHA-256 of core sources.
+ARG CHAN_QUECTEL_COMMIT=e1c027750bdf878bfe552341de457a9245358ce1
+RUN git clone --no-checkout https://github.com/AlchemillaHQ/asterisk-chan-quectel.git \
+ && cd /usr/src/asterisk-chan-quectel \
+ && git checkout --detach "$CHAN_QUECTEL_COMMIT" \
+ && test "$(git rev-parse HEAD)" = "$CHAN_QUECTEL_COMMIT" \
+ && rm -rf /usr/src/asterisk-chan-quectel/.git
+
+COPY qdc507_patch.py /tmp/qdc507_patch.py
+RUN python3 /tmp/qdc507_patch.py \
+ && echo "=== AUDIO ===" \
+ && grep -A18 -n "pvt_get_audio_format" /usr/src/asterisk-chan-quectel/src/chan_quectel.c \
+ && echo "=== VOICE ===" \
+ && grep -A6 -B3 -n "Unknown module manufacturer" /usr/src/asterisk-chan-quectel/src/at_response.c
+
+WORKDIR /usr/src/asterisk-chan-quectel
+
+RUN cmake -S . -B build \
+      -DAST_HEADER_DIR=/usr/src/asterisk/include \
+      -DASTERISK_VERSION_NUM=221001 \
+ && cmake --build build -j2 \
+ && mkdir -p /out \
+ && cp "$(find build -type f -name chan_quectel.so -print -quit)" /out/chan_quectel.so
+
+FROM andrius/asterisk@sha256:5933f0f383857f7fa419f3d52ed66734582a43ba90adb5fafa674461cbacb9ad
+
+COPY --from=builder /out/chan_quectel.so \
+     /usr/lib/asterisk/modules/chan_quectel.so
+
+RUN ldd /usr/lib/asterisk/modules/chan_quectel.so \
+ && ! ldd /usr/lib/asterisk/modules/chan_quectel.so | grep -q 'not found'

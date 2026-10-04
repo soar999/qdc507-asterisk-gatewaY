@@ -1,0 +1,711 @@
+; SMS RX/TX ENABLED
+; 7 = local QDC507
+; 8 = cellular gateway 105 via cloud-trunk
+; 9 = cellular gateway 103
+
+[general]
+static=yes
+writeprotect=no
+
+
+; ============================================================
+; Internal extensions
+; ============================================================
+
+[internal]
+exten => 100,1,NoOp(Dial 100)
+ same => n,Dial(PJSIP/100,60)
+ same => n,Hangup()
+
+exten => 101,1,NoOp(Dial 101)
+ same => n,Dial(PJSIP/101,60)
+ same => n,Hangup()
+
+exten => 103,1,NoOp(Dial 103)
+ same => n,Dial(PJSIP/103,60)
+ same => n,Hangup()
+
+exten => 105,1,NoOp(Dial 105)
+ same => n,Dial(PJSIP/105,60)
+ same => n,Hangup()
+
+exten => *43,1,Answer()
+ same => n,Echo()
+ same => n,Hangup()
+
+exten => 600,1,Answer()
+ same => n,Playback(hello-world)
+ same => n,Hangup()
+
+
+; ============================================================
+; 103 inbound CALL
+; ============================================================
+
+[from-103]
+exten => CallIn_103,1,Set(RAWFROM=${PJSIP_HEADER(read,From)})
+ same => n,Set(FROMLEFT=${CUT(RAWFROM,@,1)})
+ same => n,Set(CELLFROM=${CUT(FROMLEFT,:,2)})
+ same => n,ExecIf($["${CELLFROM}"!=""]?Set(CALLERID(num)=${CELLFROM}))
+ same => n,ExecIf($["${CELLFROM}"!=""]?Set(CALLERID(name)=${CELLFROM}))
+ same => n,NoOp(Inbound cellular call via 103 from ${CALLERID(all)})
+ same => n,Dial(PJSIP/100,60)
+ same => n,Hangup()
+
+exten => _X!,1,Set(RAWFROM=${PJSIP_HEADER(read,From)})
+ same => n,Set(FROMLEFT=${CUT(RAWFROM,@,1)})
+ same => n,Set(CELLFROM=${CUT(FROMLEFT,:,2)})
+ same => n,ExecIf($["${CELLFROM}"!=""]?Set(CALLERID(num)=${CELLFROM}))
+ same => n,ExecIf($["${CELLFROM}"!=""]?Set(CALLERID(name)=${CELLFROM}))
+ same => n,NoOp(Inbound cellular call via 103 from ${CALLERID(all)})
+ same => n,Dial(PJSIP/100,60)
+ same => n,Hangup()
+
+exten => s,1,Goto(from-103,100,1)
+
+
+; ============================================================
+; 103 inbound SMS
+; ============================================================
+
+[messages-from-103]
+
+exten => s,1,Goto(messages-from-103,100,1)
+
+exten => _.,1,NoOp(Inbound SMS from 103: ${MESSAGE(from)})
+
+ same => n,Set(SMSFROM=${PJSIP_PARSE_URI(${MESSAGE(from)},display)})
+
+ same => n,ExecIf($["${SMSFROM}"=""]?Set(SMSFROM=${PJSIP_PARSE_URI(${MESSAGE(from)},user)}))
+
+ same => n,NoOp(Parsed 103 SMS sender: ${SMSFROM})
+
+ same => n,Gosub(sms-in-to-100,s,1(103,${SMSFROM}))
+
+ same => n,Hangup()
+
+
+; ============================================================
+; Extension 100 voice routes
+;
+; 7 = QDC507
+; 8 = 105/cloud
+; 9 = 103
+; ============================================================
+
+[internal-100]
+
+include => internal
+
+
+; ------------------------------------------------------------
+; 7xxxxxxxx : local QDC507
+; ------------------------------------------------------------
+
+exten => _7X.,1,NoOp(USBQDC507outboundviaqtestto${EXTEN:1})
+
+ same => n,Dial(Quectel/quectel0/${EXTEN:1},120,rU(qdc-audio-start^${UNIQUEID}))
+
+ same => n,Hangup()
+
+
+; ------------------------------------------------------------
+; 8xxxxxxxx : remote 105 via cloud-trunk
+; ------------------------------------------------------------
+
+exten => _8X.,1,NoOp(RouteviaTencentCloudtocellular105:${EXTEN})
+
+ same => n,Dial(PJSIP/${EXTEN}@cloud-trunk,120)
+
+ same => n,Hangup()
+
+
+; ------------------------------------------------------------
+; 9xxxxxxxx : cellular gateway 103
+; ------------------------------------------------------------
+
+exten => _9X!,1,NoOp(Cellularoutboundvia103to${EXTEN:1})
+
+ same => n,Set(CALLERID(num)=103)
+
+ same => n,Dial(PJSIP/${EXTEN:1}@103,120)
+
+ same => n,Hangup()
+
+
+; ============================================================
+; SMS from extension 100
+;
+; Groundwire:
+;
+;   7 + number -> QDC507
+;   8 + number -> 105
+;   9 + number -> 103
+; ============================================================
+
+[messages-from-100]
+
+
+; ------------------------------------------------------------
+; QDC507
+; ------------------------------------------------------------
+
+exten => _7X!,1,NoOp(OutboundSMSvialocalQDC507to${EXTEN:1})
+
+ same => n,Gosub(sms-via-qtest,s,1(${EXTEN:1}))
+
+ same => n,Hangup()
+
+
+; ------------------------------------------------------------
+; 105
+; ------------------------------------------------------------
+
+exten => _8X!,1,NoOp(OutboundSMSvia105/cloudto${EXTEN:1})
+
+ same => n,Gosub(sms-via-105,s,1(${EXTEN:1}))
+
+ same => n,Hangup()
+
+
+; ------------------------------------------------------------
+; 103
+; ------------------------------------------------------------
+
+exten => _9X!,1,NoOp(OutboundSMSvia103to${EXTEN:1})
+
+ same => n,Gosub(sms-via-103,s,1(${EXTEN:1}))
+
+ same => n,Hangup()
+
+
+; ------------------------------------------------------------
+; Compatibility:
+; unprefixed Chinese mobile number defaults to 103
+; ------------------------------------------------------------
+
+exten => _+861XXXXXXXXXX,1,NoOp(DirectreplySMSvia103to${EXTEN:3})
+
+ same => n,Gosub(sms-via-103,s,1(${EXTEN:3}))
+
+ same => n,Hangup()
+
+
+exten => _861XXXXXXXXXX,1,NoOp(DirectreplySMSvia103to${EXTEN:2})
+
+ same => n,Gosub(sms-via-103,s,1(${EXTEN:2}))
+
+ same => n,Hangup()
+
+
+exten => _1XXXXXXXXXX,1,NoOp(DirectreplySMSvia103to${EXTEN})
+
+ same => n,Gosub(sms-via-103,s,1(${EXTEN}))
+
+ same => n,Hangup()
+
+
+; ============================================================
+; SMS OUT via gateway 103
+;
+; Platform has previously required short message segmentation.
+; ============================================================
+
+[sms-via-103]
+
+exten => s,1,NoOp(SendSMSvia103to${ARG1})
+
+ same => n,Set(DEST=${ARG1})
+
+
+; normalize to +86xxxxxxxxxxx
+
+ same => n,GotoIf($["${DEST:0:1}"="+"]?normalized)
+
+ same => n,ExecIf($["${DEST:0:2}"="86"]?Set(DEST=+${DEST}))
+
+ same => n,GotoIf($["${DEST:0:1}"="+"]?normalized)
+
+ same => n,Set(DEST=+86${DEST})
+
+
+ same => n(normalized),NoOp(Normalized103SMSdestination:${DEST})
+
+
+; preserve body and split it
+
+ same => n,Set(SMS_ID=${EPOCH}${RAND(100,999)})
+
+ same => n,Set(SMS_FILE=/var/spool/asterisk/sms-out/${SMS_ID}.body)
+
+ same => n,Set(FILE(${SMS_FILE})=${MESSAGE(body)})
+
+
+ same => n,Set(SMS_COUNT=${SHELL(python3 /var/log/asterisk/bin/sms-split.py ${SMS_FILE})})
+
+ same => n,Set(SMS_COUNT=${FILTER(0-9,${SMS_COUNT})})
+
+ same => n,ExecIf($["${SMS_COUNT}"=""]?Set(SMS_COUNT=0))
+
+ same => n,GotoIf($["${SMS_COUNT}"="0"]?splitfailed)
+
+
+ same => n,Set(FILE(${SMS_FILE}.count)=${SMS_COUNT})
+
+ same => n,Set(SMS_I=1)
+
+
+ same => n,While($[${SMS_I}<=${SMS_COUNT}])
+
+
+ same => n,Set(MESSAGE(body)=${FILE(${SMS_FILE}.${SMS_I})})
+
+ same => n,Set(MESSAGE(from)="103"<sip:103@<SMS_PLATFORM_DOMAIN>>)
+
+ same => n,Set(MESSAGE(to)="${DEST}"<sip:${DEST}@<SMS_PLATFORM_IP>:5062>)
+
+
+ same => n,MessageSend(pjsip:PJSIP/${DEST}@sms-platform-103,"103"<sip:103@<SMS_PLATFORM_DOMAIN>>,"${DEST}"<sip:${DEST}@<SMS_PLATFORM_IP>:5062>)
+
+
+ same => n,NoOp(103SMSpart${SMS_I}/${SMS_COUNT}status=${MESSAGE_SEND_STATUS})
+
+
+ same => n,Set(SMS_I=$[${SMS_I}+1])
+
+ same => n,EndWhile()
+
+ same => n,Return()
+
+
+same => n(splitfailed),NoOp(SMSSPLITFAILED:dest=${DEST}file=${SMS_FILE})
+
+ same => n,Set(FILE(${SMS_FILE}.failed)=1)
+
+ same => n,Set(MESSAGE_SEND_STATUS=FAILED)
+
+ same => n,Return()
+
+
+; ============================================================
+; SMS OUT via remote 105
+;
+; Send MESSAGE across cloud-trunk.
+; Remote side performs cellular SMS transmission.
+; ============================================================
+
+[sms-via-105]
+
+exten => s,1,NoOp(SendSMSviaremotecellulargateway105to${ARG1})
+
+ same => n,Set(CLOUD_DEST=${ARG1})
+
+
+; reject obviously invalid destination
+
+ same => n,GotoIf($[${LEN(${CLOUD_DEST})}<5]?invalid)
+
+
+ same => n,Set(MESSAGE(to)=sip:${CLOUD_DEST}@<CLOUD_ASTERISK_IP>:5060)
+
+
+ same => n,MessageSend(pjsip:PJSIP/${CLOUD_DEST}@cloud-trunk,"NAS100"<sip:100@<NAS_TAILSCALE_IP>>,sip:${CLOUD_DEST}@<CLOUD_ASTERISK_IP>:5060)
+
+
+ same => n,NoOp(CLOUD_HOP_STATUS=${MESSAGE_SEND_STATUS}DEST=${CLOUD_DEST})
+
+ same => n,Return()
+
+
+ same => n(invalid),NoOp(InvalidSMSdestinationfor105:${CLOUD_DEST})
+
+ same => n,Set(MESSAGE_SEND_STATUS=FAILED)
+
+ same => n,Return()
+
+
+; ============================================================
+; SMS OUT via local QDC507
+; ============================================================
+
+[sms-via-qtest]
+
+exten => s,1,NoOp(SendSMSvialocalQDC507to${ARG1})
+
+ same => n,Set(DEST=${ARG1})
+
+
+; QDC507 can use domestic number directly.
+; Reply coming in as +86... is converted back to domestic form.
+
+ same => n,ExecIf($["${DEST:0:3}"="+86"]?Set(DEST=${DEST:3}))
+
+
+ same => n,NoOp(QDC507SMSdestinationnormalizedto${DEST})
+
+
+ same => n,Set(SMSTXT=${MESSAGE(body)})
+
+
+ same => n,QUECTEL_SEND_SMS(quectel0,${DEST},"${SMSTXT}")
+
+
+ same => n,NoOp(QDC507SMSSENDSTATUS=${MESSAGE_SEND_STATUS})
+
+
+ same => n,Return()
+
+
+; ============================================================
+; Manual symmetric SMS test context
+;
+; Examples:
+;
+; Local/7138...@sms-sym-test
+; Local/8138...@sms-sym-test
+; Local/9138...@sms-sym-test
+; ============================================================
+
+[sms-sym-test]
+
+exten => _7X!,1,Set(MESSAGE(body)=QDC507-SMS-test-${EPOCH})
+ same => n,Gosub(sms-via-qtest,s,1(${EXTEN:1}))
+ same => n,Hangup()
+
+
+exten => _8X!,1,Set(MESSAGE(body)=105-SMS-test-${EPOCH})
+ same => n,Gosub(sms-via-105,s,1(${EXTEN:1}))
+ same => n,Hangup()
+
+
+exten => _9X!,1,Set(MESSAGE(body)=103-SMS-test-${EPOCH})
+ same => n,Gosub(sms-via-103,s,1(${EXTEN:1}))
+ same => n,Hangup()
+
+
+; ============================================================
+; 105 inbound CALL
+; ============================================================
+
+[from-105]
+
+exten => CallIn_105,1,Set(RAWFROM=${PJSIP_HEADER(read,From)})
+
+ same => n,Set(FROMLEFT=${CUT(RAWFROM,@,1)})
+
+ same => n,Set(CELLFROM=${CUT(FROMLEFT,:,2)})
+
+ same => n,ExecIf($["${CELLFROM}"!=""]?Set(CALLERID(num)=${CELLFROM}))
+
+ same => n,ExecIf($["${CELLFROM}"!=""]?Set(CALLERID(name)=${CELLFROM}))
+
+ same => n,NoOp(Inboundcellularcallvia105from${CALLERID(all)})
+
+ same => n,Dial(PJSIP/100,60)
+
+ same => n,Hangup()
+
+
+exten => _X!,1,Set(RAWFROM=${PJSIP_HEADER(read,From)})
+
+ same => n,Set(FROMLEFT=${CUT(RAWFROM,@,1)})
+
+ same => n,Set(CELLFROM=${CUT(FROMLEFT,:,2)})
+
+ same => n,ExecIf($["${CELLFROM}"!=""]?Set(CALLERID(num)=${CELLFROM}))
+
+ same => n,ExecIf($["${CELLFROM}"!=""]?Set(CALLERID(name)=${CELLFROM}))
+
+ same => n,NoOp(Inboundcellularcallvia105from${CALLERID(all)})
+
+ same => n,Dial(PJSIP/100,60)
+
+ same => n,Hangup()
+
+
+exten => s,1,Goto(from-105,100,1)
+
+
+; ============================================================
+; 105 inbound SMS
+; ============================================================
+
+[messages-from-105]
+
+exten => s,1,Goto(messages-from-105,100,1)
+
+
+exten => _.,1,NoOp(InboundSMSfrom105:${MESSAGE(from)})
+
+
+ same => n,Set(SMSFROM=${PJSIP_PARSE_URI(${MESSAGE(from)},display)})
+
+
+ same => n,ExecIf($["${SMSFROM}"=""]?Set(SMSFROM=${PJSIP_PARSE_URI(${MESSAGE(from)},user)}))
+
+
+ same => n,NoOp(Parsed105SMSsender:${SMSFROM})
+
+
+ same => n,Gosub(sms-in-to-100,s,1(105,${SMSFROM}))
+
+
+ same => n,Hangup()
+
+
+; ============================================================
+; Common inbound SMS handler
+;
+; ARG1 = source gateway
+;        103 / 105 / QDC507
+;
+; ARG2 = sender number
+; ============================================================
+
+[sms-in-to-100]
+
+exten => s,1,NoOp(InboundSMSvia${ARG1}from${ARG2})
+
+
+ same => n,Set(SRC=${ARG2})
+
+
+; Strip China country code for Groundwire conversation ID
+
+ same => n,ExecIf($["${SRC:0:3}"="+86"]?Set(SRC=${SRC:3}))
+
+ same => n,ExecIf($["${SRC:0:2}"="86"]?Set(SRC=${SRC:2}))
+
+
+; default gateway = 103 / prefix 9
+
+ same => n,Set(PREFIX=9)
+
+
+; gateway 105 = prefix 8
+
+ same => n,ExecIf($["${ARG1}"="105"]?Set(PREFIX=8))
+
+
+; local QDC507 = prefix 7
+
+ same => n,ExecIf($["${ARG1}"="QDC507"]?Set(PREFIX=7))
+
+
+ same => n,Set(CONV=${PREFIX}${SRC})
+
+
+ same => n,NoOp(ForwardinboundSMSto100:gateway=${ARG1}sender=${SRC}conversation=${CONV})
+
+
+; ------------------------------------------------------------
+; Private per-message archive
+; ------------------------------------------------------------
+
+ same => n,Set(ARCHIVE_SENDER=${SRC})
+
+ same => n,Set(ARCHIVE_BODY=${MESSAGE(body)})
+
+ same => n,Gosub(sms-shorttest-archive,s,1(${ARG1}))
+
+
+; ------------------------------------------------------------
+; Daily SMS log
+; ------------------------------------------------------------
+
+ same => n,Set(SMSLINE=${STRFTIME(${EPOCH},Asia/Shanghai,%Y-%m-%d %H:%M:%S)}\tIN\t${ARG1}\t${SRC}\t${MESSAGE(body)})
+
+
+ same => n,Set(SMSFILE=/var/log/asterisk/sms/inbox-${STRFTIME(${EPOCH},Asia/Shanghai,%Y-%m-%d)}.txt)
+
+
+ same => n,Set(FILE(${SMSFILE},,,,a)=${SMSLINE})
+
+
+; ------------------------------------------------------------
+; Queue for delivery to Groundwire 100
+; ------------------------------------------------------------
+
+ same => n,Set(QID=${EPOCH}-${RAND(100000,999999)})
+
+ same => n,Set(QDIR=/var/spool/asterisk/sms-queue/pending/${QID})
+
+
+ same => n,Set(FILE(${QDIR}.body)=${MESSAGE(body)})
+
+ same => n,Set(FILE(${QDIR}.gw)=${ARG1})
+
+ same => n,Set(FILE(${QDIR}.src)=${SRC})
+
+ same => n,Set(FILE(${QDIR}.conv)=${CONV})
+
+
+ same => n,NoOp(SMSarchivedandqueuedas${QID})
+
+
+ same => n,Return()
+
+
+exten => _.,1,Hangup()
+
+
+; ============================================================
+; Re-send test SMS to Groundwire
+; ============================================================
+
+[sms-resend]
+
+exten => s,1,Set(MESSAGE(body)=${FILE(/var/log/asterisk/sms/resend-body.txt)})
+
+ same => n,MessageSend(pjsip:100,"103 10086"<sip:910086@<SMS_PLATFORM_DOMAIN>>,sip:100@<SMS_PLATFORM_DOMAIN>)
+
+ same => n,Verbose(1,RESEND_STATUS=${MESSAGE_SEND_STATUS})
+
+ same => n,Hangup()
+
+
+; ============================================================
+; Deliver one queued inbound SMS to current Groundwire URI
+;
+; External queue worker supplies:
+;
+;   work/body
+;   work/gw
+;   work/src
+;   work/conv
+;   work/uri
+; ============================================================
+
+[sms-deliver-queued]
+
+exten => s,1,Set(MESSAGE(body)=${FILE(/var/spool/asterisk/sms-queue/work/body)})
+
+ same => n,Set(GW=${FILE(/var/spool/asterisk/sms-queue/work/gw)})
+
+ same => n,Set(SRC=${FILE(/var/spool/asterisk/sms-queue/work/src)})
+
+ same => n,Set(CONV=${FILE(/var/spool/asterisk/sms-queue/work/conv)})
+
+ same => n,Set(DIRECTURI=${FILE(/var/spool/asterisk/sms-queue/work/uri)})
+
+
+ same => n,MessageSend(pjsip:100/${DIRECTURI},"${GW} ${SRC}"<sip:${CONV}@<SMS_PLATFORM_DOMAIN>>,sip:100@<SMS_PLATFORM_DOMAIN>)
+
+
+ same => n,Verbose(1,QUEUED_SMS_STATUS=${MESSAGE_SEND_STATUS}URI=${DIRECTURI})
+
+
+ same => n,Hangup()
+
+
+; ============================================================
+; QDC507 per-call audio helper
+; ============================================================
+
+[qdc-audio-start]
+
+exten => s,1,NoOp(Startper-callQDC507D4/UAChelperfor${ARG1})
+
+ same => n,Set(CHANNEL(hangup_handler_push)=qdc-audio-stop,s,1(${ARG1}))
+
+ same => n,System(/usr/local/sbin/qdc507-call-audio-start.sh)
+
+ same => n,GotoIf($["${SYSTEMSTATUS}"="SUCCESS"]?ok:fail)
+
+ same => n(fail),NoOp(QDC507helperstartfailed:${SYSTEMSTATUS})
+
+ same => n,Set(GOSUB_RESULT=ABORT)
+
+ same => n,Return()
+
+ same => n(ok),Return()
+
+
+[qdc-audio-stop]
+
+exten => s,1,NoOp(Stopper-callQDC507D4/UAChelperfor${ARG1})
+
+ same => n,TrySystem(/usr/local/sbin/qdc507-call-audio-stop.sh)
+
+ same => n,Return()
+
+
+; ============================================================
+; Local QDC507 incoming call / SMS / report
+; ============================================================
+
+[incoming-mobile]
+
+
+; ------------------------------------------------------------
+; Incoming cellular CALL
+; ------------------------------------------------------------
+
+exten => s,1,NoOp(QDC507incomingcallfrom${CALLERID(all)})
+
+ same => n,Dial(PJSIP/100,60,U(qdc-audio-start^${UNIQUEID}))
+
+ same => n,Hangup()
+
+
+exten => _X.,1,NoOp(QDC507incomingcallon${EXTEN}from${CALLERID(all)})
+
+ same => n,Dial(PJSIP/100,60,U(qdc-audio-start^${UNIQUEID}))
+
+ same => n,Hangup()
+
+
+; ------------------------------------------------------------
+; SMS delivery report
+; ------------------------------------------------------------
+
+exten => report,1,Set(ARCHIVE_SENDER=QDC507-REPORT)
+
+ same => n,Set(ARCHIVE_BODY=type=${SMS_REPORT_TYPE}success=${SMS_REPORT_SUCCESS}ref=${SMS_REPORT}payload=${SMS_REPORT_PAYLOAD})
+
+ same => n,Gosub(sms-shorttest-archive,s,1(REPORT))
+
+ same => n,Hangup()
+
+
+; ------------------------------------------------------------
+; Incoming SMS from local QDC507
+; ------------------------------------------------------------
+
+exten => sms,1,NoOp(IncomingSMSfromlocalQDC507)
+
+
+ same => n,Set(SMSFROM=${JSON_DECODE(SMS,from)})
+
+
+ same => n,ExecIf($["${SMSFROM}"=""]?Set(SMSFROM=${CALLERID(num)}))
+
+
+ same => n,Set(MESSAGE(body)=${JSON_DECODE(SMS,msg)})
+
+
+ same => n,NoOp(QDC507SMSfrom${SMSFROM}:${MESSAGE(body)})
+
+
+ same => n,Gosub(sms-in-to-100,s,1(QDC507,${SMSFROM}))
+
+
+ same => n,Hangup()
+
+
+; ============================================================
+; Private archive
+; ============================================================
+
+[sms-shorttest-archive]
+
+exten => s,1,Set(ARCHIVE_ID=${FILTER(0-9.,${UNIQUEID})})
+
+
+ same => n,Set(ARCHIVE_PATH=/var/log/asterisk/sms-shorttest-private/in-${ARCHIVE_ID}.txt)
+
+
+ same => n,Set(FILE(${ARCHIVE_PATH})=${STRFTIME(${EPOCH},Asia/Shanghai,%F %T)}${ARG1}${ARCHIVE_SENDER}${ARCHIVE_BODY})
+
+
+ same => n,Return()

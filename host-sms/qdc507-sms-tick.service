@@ -1,0 +1,9 @@
+[Unit]
+Description=Deliver queued NAS Asterisk SMS once with root-pinned consumer
+After=pkgctl-Docker.service
+Wants=pkgctl-Docker.service
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/bin/python3.8 /usr/local/sbin/qdc507-sms-tick.py

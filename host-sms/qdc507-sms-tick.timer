@@ -1,0 +1,12 @@
+[Unit]
+Description=Schedule root-pinned NAS SMS queue delivery
+After=pkgctl-Docker.service
+
+[Timer]
+OnBootSec=120s
+OnUnitInactiveSec=10s
+AccuracySec=3s
+Unit=qdc507-sms-tick.service
+
+[Install]
+WantedBy=timers.target

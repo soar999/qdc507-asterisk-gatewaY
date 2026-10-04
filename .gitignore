@@ -1,0 +1,27 @@
+.DS_Store
+.env
+*.key
+*.pem
+*secret*
+*password*
+config/pjsip.conf
+v1/
+v2/
+v3/
+v4/
+v5/
+sms-queue/
+*.log
+*.pcap
+*.bak
+*.tmp
+*.swp
+qdc507-archive-*/
+
+# Production dialplan with real network addresses
+config/extensions.conf
+
+# Python/build artifacts
+__pycache__/
+*.pyc
+*.pyo

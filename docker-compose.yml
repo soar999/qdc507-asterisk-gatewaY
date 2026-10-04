@@ -1,0 +1,53 @@
+version: "3.9"
+
+services:
+  qdc507-hardware:
+    image: qdc507-asterisk:22.10.1-qdc507-clccsafe4
+    container_name: qdc507-hardware
+
+    command:
+      - /usr/sbin/asterisk
+      - -vf
+      - -T
+      - -W
+      - -U
+      - asterisk
+      - -p
+
+    network_mode: host
+    restart: unless-stopped
+
+    devices:
+      - /dev/qdc507-at:/dev/ttyUSB0:rwm
+      - /dev/snd/controlC0:/dev/snd/controlC0:rwm
+      - /dev/snd/pcmC0D0c:/dev/snd/pcmC0D0c:rwm
+      - /dev/snd/pcmC0D0p:/dev/snd/pcmC0D0p:rwm
+      - /dev/snd/timer:/dev/snd/timer:rwm
+
+    volumes:
+      - /volume2/docker/asterisk/qdc507-current/v0:/etc/asterisk
+      - /volume2/docker/asterisk/qdc507-current/v1:/var/log/asterisk
+      - /volume2/docker/asterisk/qdc507-current/v2:/var/spool/asterisk
+      - /volume2/docker/asterisk/qdc507-current/v3:/var/lib/asterisk/keys
+      - /volume2/docker/asterisk/qdc507-current/v4:/var/lib/asterisk/phoneprov
+      - /volume2/docker/asterisk/qdc507-current/v5:/var/lib/asterisk/sounds
+
+      - /volume2/docker/asterisk/qdc507-current/modules.hardware.runtime.conf:/etc/asterisk/modules.conf:ro
+
+      - /volume2/docker/asterisk/qdc507-current/helpers/adb:/usr/local/bin/adb:ro
+      - /volume2/docker/asterisk/qdc507-current/helpers/qdc507-call-audio-start.sh:/usr/local/sbin/qdc507-call-audio-start.sh:ro
+      - /volume2/docker/asterisk/qdc507-current/helpers/qdc507-call-audio-stop.sh:/usr/local/sbin/qdc507-call-audio-stop.sh:ro
+
+    cap_drop:
+      - ALL
+
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETUID
+      - SETGID
+      - SYS_NICE
+
+    security_opt:
+      - no-new-privileges:true
