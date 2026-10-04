@@ -689,3 +689,129 @@ KERNEL_CHANGED
 当前系统曾完成真实冷启动、通话和 SMS 验证；随后项目又经历了 Asterisk 配置 ACL 修复、DNS Manager 启用、日志策略和 Compose 启动参数等更新。
 
 因此，任何一次“从 GitHub 从零恢复”之后，都应重新执行本文件第 19 节的完整验收，而不能只依赖历史成功记录。
+## 23. QDC507 首次 Provisioning：ADB / UAC / IMS / VoLTE
+
+本仓库当前的自动恢复链默认 QDC507 已经完成过首次 provisioning。
+
+如果使用的是当前这块已经配置成功的 QDC507，通常不需要重复本节；直接按前面的 host runtime、coldstart 和 `qdc507-one-task.py` 流程恢复即可。
+
+如果更换为全新、恢复出厂，或者 USB/IMS 配置被重置的 QDC507，则必须先完成模块侧 provisioning。
+
+DJOneHubNative 的已验证思路包括：
+
+1. 通过 AT 读取并备份当前模块身份和 USB 配置：
+   - `AT+QCFG="USBCFG"`
+   - IMS 配置
+   - VoLTE disable 配置
+
+2. 确认并启用：
+   - ADB
+   - USB Audio / UAC
+   - IMS
+   - VoLTE
+
+3. 修改 USB 配置时必须保留：
+   - 当前 VID/PID
+   - 其他未修改的 USB 功能位
+
+   不要直接套用其他 Quectel 模块的完整 USBCFG 值。
+
+4. 如果 ADB 尚未授权，需要完成模块支持的 ADB 授权流程，例如适用固件中的 `QADBKEY` challenge/response。
+
+5. 模块重启后重新确认：
+   - USB 配置正确
+   - IMS / VoLTE 正确
+   - ADB 可以获得 root shell
+
+   最低验证：
+
+   ```bash
+   adb shell id -u
+   adb shell uname -r
+   ```
+
+   当前 voice runtime 要求模块内核为：
+
+   ```text
+   3.18.44
+   ```
+
+6. ADB 可用后，本项目的恢复逻辑会向模块部署：
+
+   ```text
+   qdc507_aprv3.ko
+   qdc507_voice.ko
+   mavo-pcm-bridge.armv7
+   ```
+
+7. 模块内部按顺序加载：
+
+   ```text
+   qdc507_aprv3
+   qdc507_voice
+   ```
+
+   随后应出现模块内部 ALSA voice devices，包括 D4 playback/capture 以及相关 D5/D6 节点。
+
+8. `alsaucm_test` 用于应用模块内部的 VoLTE / AUXPCM 音频校准：
+
+   ```text
+   VoLTE
+   Auxpcm Rx
+   Auxpcm Tx
+   ```
+
+9. 通话进入 active 状态后，启动：
+
+   ```text
+   mavo-pcm-bridge.armv7 --voice-route-session
+   ```
+
+   该 helper 负责建立 D4 语音路由，并最终使：
+
+   ```text
+   /sys/class/android_usb/f_audio/audio_enable = 1
+   ```
+
+   此时 USB UAC 通话音频才真正对 NAS 主机开放。
+
+10. 通话结束后 helper 应退出，并恢复：
+
+    ```text
+    audio_enable = 0
+    ```
+
+    同时完成模块内部 voice route 回滚。
+
+### 重要区别
+
+```text
+已经 provision 过的 QDC507
+    → 本仓库 recovery / one-task 流程即可恢复
+
+全新或恢复出厂的 QDC507
+    → 必须先完成 ADB + UAC + IMS + VoLTE provisioning
+    → 再进入本仓库 runtime / recovery 流程
+```
+
+本项目的 QDC507 voice runtime 和 per-call audio 生命周期设计参考并验证了 DJOneHubNative 的模块语音实现思路：
+
+- 加载 `qdc507_aprv3.ko` 和 `qdc507_voice.ko`
+- 等待模块侧 ALSA voice 节点出现
+- 通过 `alsaucm_test` 应用 VoLTE / Auxpcm Rx / Auxpcm Tx 校准
+- 通话 active 后启动 `mavo-pcm-bridge.armv7 --voice-route-session`
+- 通话期间确认 `audio_enable=1`
+- 挂机后恢复 `audio_enable=0`
+
+参考项目：
+
+```text
+https://github.com/cr-zhichen/DJOneHubNative
+```
+
+恢复时不要仅以 USB 声卡节点存在作为成功标准。最终验收仍应包括：
+
+- 通话期间 `audio_enable=1`
+- D4 playback/capture 为 RUNNING
+- SIP 与 cellular 双向真实通话均有声音
+- 挂机后 voice helper 和 audio route 正常回滚
