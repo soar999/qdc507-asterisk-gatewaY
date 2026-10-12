@@ -1,0 +1,140 @@
+--- src/at_response.c
++++ /var/minis/shared/qdc507-regfix/src/src/at_response.c
+@@ -2170,30 +2170,35 @@
+     char* lac;
+     char* ci;
+     int act;
++    const int was_registered = pvt->gsm_registered;
+ 
+     if (at_parse_creg(ast_str_buffer(response), cereg, &reg_status, &lac, &ci, &act)) {
+         ast_log(LOG_ERROR, "[%s] Error parsing %s: '%s'\n", PVT_ID(pvt), S_COR(cereg, "CEREG", "CREG"), ast_str_buffer(response));
+         return 0;
+     }
+ 
+-    if (gsm_is_registered(reg_status)) {
++    if (cereg) {
++        pvt->lte_reg_status = reg_status;
++        pvt->cereg_registered = gsm_is_registered(reg_status) ? 1 : 0;
++    } else {
++        pvt->gsm_reg_status = reg_status;
++        pvt->creg_registered = gsm_is_registered(reg_status) ? 1 : 0;
++    }
++    pvt->gsm_registered = pvt->creg_registered || pvt->cereg_registered;
++    const int became_registered = pvt->gsm_registered && !was_registered;
++
++    if (pvt->gsm_registered) {
+         int (*const query_provider_name_fn)(struct cpvt*) = pvt->is_simcom ? &at_enqueue_cspn_cops : &at_enqueue_qspn_qnwinfo;
+         if ((*query_provider_name_fn)(&pvt->sys_chan)) {
+             ast_log(LOG_WARNING, "[%s] Error sending query for provider name\n", PVT_ID(pvt));
+         }
+ 
+-        // #ifdef ISSUE_CCWA_STATUS_CHECK
+-        /* only if gsm_registered 0 -> 1 ? */
+-        if (!pvt->gsm_registered && CONF_SHARED(pvt, call_waiting) != CALL_WAITING_AUTO) {
++        if (became_registered && CONF_SHARED(pvt, call_waiting) != CALL_WAITING_AUTO) {
+             if (at_enqueue_set_ccwa(&pvt->sys_chan, CONF_SHARED(pvt, call_waiting))) {
+                 ast_log(LOG_WARNING, "[%s] Error setting call waiting mode\n", PVT_ID(pvt));
+             }
+         }
+-        // #endif
+ 
+-        pvt->gsm_registered = 1;
+-        pvt->gsm_reg_status = reg_status;
+-
+         if (lac) {
+             ast_string_field_set(pvt, location_area_code, lac);
+             ast_verb(1, "[%s] Location area code: %s\n", PVT_ID(pvt), S_OR(lac, ""));
+@@ -2209,8 +2214,7 @@
+                 pvt_set_act(pvt, mact);
+             }
+         }
+-    } else {
+-        pvt->gsm_registered = 0;
++    } else if (!pvt->creg_registered && !pvt->cereg_registered) {
+         pvt_set_act(pvt, 0);
+         ast_string_field_set(pvt, location_area_code, NULL);
+         ast_string_field_set(pvt, cell_id, NULL);
+--- src/at_command.c
++++ /var/minis/shared/qdc507-regfix/src/src/at_command.c
+@@ -323,6 +323,7 @@
+     };
+ 
+     DECLARE_AT_CMD(cereg_init, "+CEREG=2");
++    DECLARE_AT_CMD(cereg_query, "+CEREG?");
+ 
+     struct pvt* const pvt   = cpvt->pvt;
+     const unsigned int dtmf = CONF_SHARED(pvt, dtmf);
+@@ -338,6 +339,7 @@
+         ATQ_CMD_DECLARE_ST(CMD_AT_QINDCFG_RING, qindcfg_ring),
+         //tonedet_cmds[dtmf ? 1 : 0],
+         ATQ_CMD_DECLARE_ST(CMD_AT_CEREG_INIT, cereg_init),
++        ATQ_CMD_DECLARE_ST(CMD_AT_CEREG, cereg_query),
+         ATQ_CMD_DECLARE_ST(CMD_AT_FINAL, at),
+     };
+ 
+--- src/chan_quectel.h
++++ /var/minis/shared/qdc507-regfix/src/src/chan_quectel.h
+@@ -117,6 +117,7 @@
+ 
+     /* device state */
+     int gsm_reg_status;
++    int lte_reg_status;
+     int act;
+     int operator;
+     int rssi;
+@@ -152,7 +153,9 @@
+     /* flags */
+     volatile unsigned int connected:1; /*!< do we have an connection to a device */
+     unsigned int initialized       :1; /*!< whether a service level connection exists or not */
+-    unsigned int gsm_registered    :1; /*!< do we have an registration to a GSM */
++    unsigned int gsm_registered    :1; /*!< circuit or LTE registration is usable */
++    unsigned int creg_registered   :1; /*!< circuit-domain CREG registration */
++    unsigned int cereg_registered  :1; /*!< LTE CEREG registration */
+     unsigned int dialing           :1; /*!< HW state; true from ATD response OK until CEND or CONN for this call idx */
+     unsigned int ring              :1; /*!< HW state; true if has incoming call from first RING until CEND or CONN */
+     unsigned int cwaiting          :1; /*!< HW state; true if has incoming call waiting from first CCWA until CEND or CONN for */
+--- src/chan_quectel.c
++++ /var/minis/shared/qdc507-regfix/src/src/chan_quectel.c
+@@ -175,6 +175,7 @@
+ 
+     /* unaffected in case of restart */
+     pvt->gsm_reg_status = -1;
++    pvt->lte_reg_status = -1;
+     pvt->rssi           = 0;
+     pvt->act            = 0;
+     pvt->operator= 0;
+@@ -199,6 +200,8 @@
+     pvt->has_subscriber_number = 0;
+ 
+     pvt->gsm_registered   = 0;
++    pvt->creg_registered  = 0;
++    pvt->cereg_registered = 0;
+     pvt->has_sms          = CONF_SHARED(pvt, msg_direct) ? 0 : 1;
+     pvt->has_voice        = 0;
+     pvt->has_call_waiting = 0;
+@@ -1109,6 +1112,7 @@
+     ast_json_object_set(status, "name", ast_json_string_create(PVT_ID(pvt)));
+     set_state_str(pvt, status);
+     ast_json_object_set(status, "gsm", ast_json_string_create(gsm_regstate2str_json(pvt->gsm_reg_status)));
++    ast_json_object_set(status, "lte", ast_json_string_create(gsm_regstate2str_json(pvt->lte_reg_status)));
+ 
+     SET_PVT_STRING_FIELD(status, subscriber_number);
+     SET_PVT_STRING_FIELD(status, network_name);
+@@ -1152,6 +1156,7 @@
+     pvt->audio_fd           = -1;
+     pvt->data_fd            = -1;
+     pvt->gsm_reg_status     = -1;
++    pvt->lte_reg_status     = -1;
+     pvt->has_sms            = SCONFIG(settings, msg_direct) ? 0 : 1;
+     pvt->incoming_sms_index = -1;
+     pvt->incoming_sms_type  = RES_UNKNOWN;
+--- src/cli.c
++++ /var/minis/shared/qdc507-regfix/src/src/cli.c
+@@ -200,6 +200,7 @@
+         ast_cli(a->fd, "  IMSI                    : %s\n", pvt->imsi);
+         ast_cli(a->fd, "  ICCID                   : %s\n", pvt->iccid);
+         ast_cli(a->fd, "  GSM Registration Status : %s\n", gsm_regstate2str(pvt->gsm_reg_status));
++        ast_cli(a->fd, "  LTE Registration Status : %s\n", gsm_regstate2str(pvt->lte_reg_status));
+         ast_cli(a->fd, "  RSSI                    : %d, %s\n", pvt->rssi, ast_str_buffer(rssi_str));
+         ast_cli(a->fd, "  Access technology       : %s\n", sys_act2str(pvt->act));
+         ast_cli(a->fd, "  Network Name            : %s\n", pvt->network_name);
