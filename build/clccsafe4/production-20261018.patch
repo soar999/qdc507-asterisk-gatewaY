@@ -1,0 +1,567 @@
+--- a/src/at_command.c
++++ b/src/at_command.c
+@@ -156,6 +156,7 @@
+     DECLARE_AT_CMD(cops, "+COPS=3,0");
+     DECLARE_AT_CMD(creg_2, "+CREG=2");
+     DECLARE_AT_CMD(creg, "+CREG?");
++    DECLARE_AT_CMD(cereg_query, "+CEREG?");
+     DECLARE_AT_CMD(cnum, "+CNUM");
+ 
+     DECLARE_AT_CMD(cssn, "+CSSN=0,0");
+@@ -177,8 +178,9 @@
+         ATQ_CMD_DECLARE_ST(CMD_AT_CPIN, cpin),      /* Check is password authentication requirement and the remainder validation times */
+         ATQ_CMD_DECLARE_ST(CMD_AT_COPS_INIT, cops), /* Read operator name */
+ 
+-        ATQ_CMD_DECLARE_STI(CMD_AT_CREG_INIT, creg_2), /* GSM registration status setting */
+-        ATQ_CMD_DECLARE_ST(CMD_AT_CREG, creg),         /* GSM registration status */
++        ATQ_CMD_DECLARE_STI(CMD_AT_CREG_INIT, creg_2),
++        ATQ_CMD_DECLARE_ST(CMD_AT_CEREG, cereg_query),
++        ATQ_CMD_DECLARE_ST(CMD_AT_CREG, creg),
+ 
+         ATQ_CMD_DECLARE_STI(CMD_AT_CNUM, cnum), /* Get Subscriber number */
+ 
+@@ -323,6 +325,7 @@
+     };
+ 
+     DECLARE_AT_CMD(cereg_init, "+CEREG=2");
++    DECLARE_AT_CMD(cereg_query, "+CEREG?");
+ 
+     struct pvt* const pvt   = cpvt->pvt;
+     const unsigned int dtmf = CONF_SHARED(pvt, dtmf);
+@@ -964,6 +967,14 @@
+ 
+ int at_enqueue_ping_taskproc(void* tpdata) { return PVT_TASKPROC_TRYLOCK_AND_EXECUTE(tpdata, at_enqueue_ping_sys_chan); }
+ 
++int at_enqueue_registration_query(struct cpvt* cpvt)
++{
++    if (at_enqueue_generic(cpvt, CMD_AT_CEREG, 0, "AT+CEREG?\r")) {
++        return -1;
++    }
++    return at_enqueue_generic(cpvt, CMD_AT_CREG, 0, "AT+CREG?\r");
++}
++
+ /*!
+  * \brief Enqueue user-specified command
+  * \param cpvt -- cpvt structure
+@@ -1353,24 +1364,12 @@
+ {
+     DECLARE_AT_CMD(clcc, "+CLCC");
+     static const at_queue_cmd_t cmd = ATQ_CMD_DECLARE_ST(CMD_AT_CLCC, clcc);
+-    struct pvt* pvt = cpvt->pvt;
+-    struct at_queue_task* queued;
+-    AST_LIST_TRAVERSE(&pvt->at_queue, queued, entry) {
+-        const at_queue_cmd_t* current = at_queue_task_cmd(queued);
+-        if (current && current->cmd == CMD_AT_CLCC) return 0;
+-    }
+-    pvt->qdc507_clcc_seen = 0u;
+-    pvt->qdc507_clcc_snapshot_invalid = 0u;
+-    /* A fresh snapshot starts here. Later +CLCC lines set ALIVE via
+-     * handle_clcc; do not clear it once per response line. */
+-    struct cpvt* channel;
+-    AST_LIST_TRAVERSE(&pvt->chans, channel, entry) {
+-        CPVT_RESET_FLAG(channel, CALL_FLAG_ALIVE);
+-    }
++
+     if (at_queue_insert_const(cpvt, &cmd, 1u, 1)) {
+         chan_quectel_err = E_QUEUE;
+         return -1;
+     }
++
+     return 0;
+ }
+ 
+--- a/src/at_command.h
++++ b/src/at_command.h
+@@ -138,6 +138,7 @@
+ int at_enqueue_initialization_simcom(struct cpvt*);
+ int at_enqueue_initialization_other(struct cpvt*);
+ int at_enqueue_ping(struct cpvt* cpvt);
++int at_enqueue_registration_query(struct cpvt* cpvt);
+ int at_enqueue_ping_taskproc(void*);
+ int at_enqueue_cspn_cops(struct cpvt* cpvt);
+ int at_enqueue_qspn_qnwinfo(struct cpvt* cpvt);
+--- a/src/at_response.c
++++ b/src/at_response.c
+@@ -147,7 +147,7 @@
+ {
+     if (!pvt->initialized || strncmp(pvt->manufacturer, "Baiwang", 7)) return;
+     if (pvt->qdc507_clcc_snapshot_invalid) {
+-        ast_log(LOG_WARNING, "[%s][QDC507] Invalid CLCC snapshot; preserve channels\n", PVT_ID(pvt));
++        ast_log(LOG_WARNING, "[%s][QDC507] Invalid CLCC snapshot; preserve hangup state\n", PVT_ID(pvt));
+         pvt->qdc507_clcc_snapshot_invalid = 0u;
+         pvt->qdc507_clcc_seen = 0u;
+         return;
+@@ -156,26 +156,20 @@
+         struct cpvt* stale = NULL;
+         struct cpvt* cpvt;
+         AST_LIST_TRAVERSE(&pvt->chans, cpvt, entry) {
++            if (!CPVT_TEST_FLAG(cpvt, CALL_FLAG_QDC507_HANGUP_PENDING)) continue;
+             if (cpvt->state == CALL_STATE_INIT) continue;
+-            int pending=CPVT_TEST_FLAG(cpvt,CALL_FLAG_QDC507_HANGUP_PENDING);
+-            int tracked=CPVT_TEST_FLAG(cpvt,CALL_FLAG_QDC507_CLCC_TRACKED);
+-            if (!pending && !tracked) continue;
+-            if (CPVT_TEST_FLAG(cpvt,CALL_FLAG_ALIVE)) {
+-                cpvt->qdc507_clcc_missing=0;
+-                continue;
+-            }
+-            if (pending) { stale=cpvt; break; }
+-            if (cpvt->qdc507_clcc_missing < 2) cpvt->qdc507_clcc_missing++;
+-            if (cpvt->qdc507_clcc_missing >= 2) { stale=cpvt; break; }
++            if (CPVT_TEST_FLAG(cpvt, CALL_FLAG_ALIVE)) continue;
++            stale = cpvt;
++            break;
+         }
+         if (!stale) break;
+-        int idx=stale->call_idx;
+-        CPVT_RESET_FLAG(stale,CALL_FLAG_QDC507_HANGUP_PENDING | CALL_FLAG_QDC507_CLCC_TRACKED | CALL_FLAG_ALIVE);
+-        ast_verb(2,"[%s][QDC507] complete CLCC confirms idx:%d absent -> RELEASED\n",PVT_ID(pvt),idx);
+-        cpvt_change_state(stale,CALL_STATE_RELEASED,AST_CAUSE_NORMAL_CLEARING);
+-    }
+-    pvt->qdc507_clcc_snapshot_invalid=0u;
+-    pvt->qdc507_clcc_seen=0u;
++        int idx = stale->call_idx;
++        CPVT_RESET_FLAG(stale, CALL_FLAG_QDC507_HANGUP_PENDING | CALL_FLAG_ALIVE);
++        ast_verb(2, "[%s][QDC507] complete CLCC confirms idx:%d absent; releasing\n", PVT_ID(pvt), idx);
++        cpvt_change_state(stale, CALL_STATE_RELEASED, AST_CAUSE_NORMAL_CLEARING);
++    }
++    pvt->qdc507_clcc_snapshot_invalid = 0u;
++    pvt->qdc507_clcc_seen = 0u;
+ }
+ 
+ static int at_response_cmgs_error(struct pvt*, const at_queue_task_t* const);
+@@ -399,28 +393,14 @@
+         case CMD_AT_CHUP:
+         case CMD_AT_QHUP:
+         case CMD_AT_CHLD_1x: {
+-            const int hungup_idx = task->cpvt ? task->cpvt->call_idx : -1;
+-            CPVT_RESET_FLAG(task->cpvt, CALL_FLAG_NEED_HANGUP);
+-            at_ok_response_dbg(1, pvt, ecmd, "Successful hangup for call idx:%d", hungup_idx);
+-
+-            /*
+-             * Immediate reconciliation after successful CHUP. The CLCC
+-             * command is inserted into the existing AT queue while this
+-             * serialized response task owns pvt->lock. Queue removal of
+-             * CHUP happens just after this handler; monitor_thread then
+-             * transmits CLCC. The existing trailing-OK CLCC finalizer
+-             * releases only call indexes absent from the completed snapshot.
+-             */
++            int idx = task->cpvt ? task->cpvt->call_idx : -1;
++            if (task->cpvt) CPVT_RESET_FLAG(task->cpvt, CALL_FLAG_NEED_HANGUP);
++            at_ok_response_dbg(1, pvt, ecmd, "Successful hangup for call idx:%d", idx);
+             if (task->cpvt && CPVT_TEST_FLAG(task->cpvt, CALL_FLAG_QDC507_HANGUP_PENDING) &&
+                 !pvt->is_simcom && pvt->initialized && !strncmp(pvt->manufacturer, "Baiwang", 7)) {
+-                ast_verb(2,
+-                         "[%s][QDC507] Hangup accepted for idx:%d; request immediate CLCC reconciliation\n",
+-                         PVT_ID(pvt), hungup_idx);
+-                if (at_enqueue_clcc(&pvt->sys_chan)) {
+-                    ast_log(LOG_WARNING,
+-                            "[%s][QDC507] Unable to enqueue post-hangup CLCC\n",
+-                            PVT_ID(pvt));
+-                }
++                ast_verb(2, "[%s][QDC507] CHUP OK idx:%d; immediate CLCC reconcile\n", PVT_ID(pvt), idx);
++                if (at_enqueue_clcc(&pvt->sys_chan))
++                    ast_log(LOG_WARNING, "[%s][QDC507] post-hangup CLCC enqueue failed\n", PVT_ID(pvt));
+             }
+             break;
+         }
+@@ -643,10 +623,11 @@
+             at_err_response_err(pvt, ecmd, NULL);
+             /* mean disconnected from device */
+             goto e_return;
++
+         case CMD_AT_CLCC:
+-            at_err_response_wrn(pvt, ecmd, "CLCC failed; preserve pending calls");
+-            pvt->qdc507_clcc_snapshot_invalid=0u;
+-            pvt->qdc507_clcc_seen=0u;
++            at_err_response_wrn(pvt, ecmd, "CLCC snapshot failed; preserve channels for retry");
++            pvt->qdc507_clcc_snapshot_invalid = 0u;
++            pvt->qdc507_clcc_seen = 0u;
+             break;
+ 
+         case CMD_AT_FINAL:
+@@ -1205,6 +1186,12 @@
+     if (!pvt->initialized) {
+         return 0;
+     }
++    pvt->qdc507_clcc_snapshot_invalid = 0u;
++
++    struct cpvt* cpvt;
++    AST_LIST_TRAVERSE(&pvt->chans, cpvt, entry) {
++        CPVT_RESET_FLAG(cpvt, CALL_FLAG_ALIVE);
++    }
+ 
+     RAII_VAR(struct ast_str*, line, ast_str_create(LINE_DEF_LEN), ast_free);
+     for (const char* str = ast_str_buffer(response); str; str = next_line(str)) {
+@@ -1233,10 +1220,7 @@
+         if (call_idx <= MAX_CALL_IDX) {
+             pvt->qdc507_clcc_seen |= (1u << call_idx);
+         }
+-
+         handle_clcc(pvt, call_idx, dir, state, mode, mpty ? TRIBOOL_TRUE : TRIBOOL_FALSE, number, type);
+-        struct cpvt* observed=pvt_channel_find_by_call_idx(pvt,(int)call_idx);
+-        if (observed) CPVT_SET_FLAG(observed,CALL_FLAG_QDC507_CLCC_TRACKED);
+     }
+ 
+     return 0;
+@@ -2186,29 +2170,34 @@
+     char* lac;
+     char* ci;
+     int act;
++    const int was_registered = pvt->gsm_registered;
+ 
+     if (at_parse_creg(ast_str_buffer(response), cereg, &reg_status, &lac, &ci, &act)) {
+         ast_log(LOG_ERROR, "[%s] Error parsing %s: '%s'\n", PVT_ID(pvt), S_COR(cereg, "CEREG", "CREG"), ast_str_buffer(response));
+         return 0;
+     }
+ 
+-    if (gsm_is_registered(reg_status)) {
++    if (cereg) {
++        pvt->lte_reg_status = reg_status;
++        pvt->cereg_registered = gsm_is_registered(reg_status) ? 1 : 0;
++    } else {
++        pvt->gsm_reg_status = reg_status;
++        pvt->creg_registered = gsm_is_registered(reg_status) ? 1 : 0;
++    }
++    pvt->gsm_registered = pvt->creg_registered || pvt->cereg_registered;
++    const int became_registered = pvt->gsm_registered && !was_registered;
++
++    if (pvt->gsm_registered) {
+         int (*const query_provider_name_fn)(struct cpvt*) = pvt->is_simcom ? &at_enqueue_cspn_cops : &at_enqueue_qspn_qnwinfo;
+         if ((*query_provider_name_fn)(&pvt->sys_chan)) {
+             ast_log(LOG_WARNING, "[%s] Error sending query for provider name\n", PVT_ID(pvt));
+         }
+ 
+-        // #ifdef ISSUE_CCWA_STATUS_CHECK
+-        /* only if gsm_registered 0 -> 1 ? */
+-        if (!pvt->gsm_registered && CONF_SHARED(pvt, call_waiting) != CALL_WAITING_AUTO) {
++        if (became_registered && CONF_SHARED(pvt, call_waiting) != CALL_WAITING_AUTO) {
+             if (at_enqueue_set_ccwa(&pvt->sys_chan, CONF_SHARED(pvt, call_waiting))) {
+                 ast_log(LOG_WARNING, "[%s] Error setting call waiting mode\n", PVT_ID(pvt));
+             }
+         }
+-        // #endif
+-
+-        pvt->gsm_registered = 1;
+-        pvt->gsm_reg_status = reg_status;
+ 
+         if (lac) {
+             ast_string_field_set(pvt, location_area_code, lac);
+@@ -2225,8 +2214,7 @@
+                 pvt_set_act(pvt, mact);
+             }
+         }
+-    } else {
+-        pvt->gsm_registered = 0;
++    } else if (!pvt->creg_registered && !pvt->cereg_registered) {
+         pvt_set_act(pvt, 0);
+         ast_string_field_set(pvt, location_area_code, NULL);
+         ast_string_field_set(pvt, cell_id, NULL);
+--- a/src/chan_quectel.c
++++ b/src/chan_quectel.c
+@@ -175,6 +175,7 @@
+ 
+     /* unaffected in case of restart */
+     pvt->gsm_reg_status = -1;
++    pvt->lte_reg_status = -1;
+     pvt->rssi           = 0;
+     pvt->act            = 0;
+     pvt->operator= 0;
+@@ -199,6 +200,8 @@
+     pvt->has_subscriber_number = 0;
+ 
+     pvt->gsm_registered   = 0;
++    pvt->creg_registered  = 0;
++    pvt->cereg_registered = 0;
+     pvt->has_sms          = CONF_SHARED(pvt, msg_direct) ? 0 : 1;
+     pvt->has_voice        = 0;
+     pvt->has_call_waiting = 0;
+@@ -1109,6 +1112,7 @@
+     ast_json_object_set(status, "name", ast_json_string_create(PVT_ID(pvt)));
+     set_state_str(pvt, status);
+     ast_json_object_set(status, "gsm", ast_json_string_create(gsm_regstate2str_json(pvt->gsm_reg_status)));
++    ast_json_object_set(status, "lte", ast_json_string_create(gsm_regstate2str_json(pvt->lte_reg_status)));
+ 
+     SET_PVT_STRING_FIELD(status, subscriber_number);
+     SET_PVT_STRING_FIELD(status, network_name);
+@@ -1152,6 +1156,7 @@
+     pvt->audio_fd           = -1;
+     pvt->data_fd            = -1;
+     pvt->gsm_reg_status     = -1;
++    pvt->lte_reg_status     = -1;
+     pvt->has_sms            = SCONFIG(settings, msg_direct) ? 0 : 1;
+     pvt->incoming_sms_index = -1;
+     pvt->incoming_sms_type  = RES_UNKNOWN;
+--- a/src/chan_quectel.h
++++ b/src/chan_quectel.h
+@@ -109,7 +109,7 @@
+ 
+     int data_fd; /*!< data descriptor */
+     uint32_t qdc507_clcc_seen; /*!< QDC507 calls seen in current CLCC generation */
+-    unsigned int qdc507_clcc_snapshot_invalid:1; /*!< malformed snapshot guard */
++    unsigned int qdc507_clcc_snapshot_invalid:1; /*!< malformed CLCC cannot reap calls */
+ 
+     struct ast_timer* a_timer;   /*!< audio write timer */
+     void* silence_buf;           //[FRAME_SIZE_PLAYBACK * 2];
+@@ -118,6 +118,7 @@
+ 
+     /* device state */
+     int gsm_reg_status;
++    int lte_reg_status;
+     int act;
+     int operator;
+     int rssi;
+@@ -153,7 +154,9 @@
+     /* flags */
+     volatile unsigned int connected:1; /*!< do we have an connection to a device */
+     unsigned int initialized       :1; /*!< whether a service level connection exists or not */
+-    unsigned int gsm_registered    :1; /*!< do we have an registration to a GSM */
++    unsigned int gsm_registered    :1; /*!< circuit or LTE registration is usable */
++    unsigned int creg_registered   :1; /*!< circuit-domain CREG registration */
++    unsigned int cereg_registered  :1; /*!< LTE CEREG registration */
+     unsigned int dialing           :1; /*!< HW state; true from ATD response OK until CEND or CONN for this call idx */
+     unsigned int ring              :1; /*!< HW state; true if has incoming call from first RING until CEND or CONN */
+     unsigned int cwaiting          :1; /*!< HW state; true if has incoming call waiting from first CCWA until CEND or CONN for */
+--- a/src/channel.c
++++ b/src/channel.c
+@@ -299,11 +299,9 @@
+                 CPVT_RESET_FLAG(cpvt, CALL_FLAG_NEED_HANGUP);
+                 if (!pvt->is_simcom && pvt->initialized &&
+                     !strncmp(pvt->manufacturer, "Baiwang", 7) &&
+-                    cpvt->state != CALL_STATE_INIT &&
+                     cpvt->call_idx >= MIN_CALL_IDX && cpvt->call_idx <= MAX_CALL_IDX) {
+                     CPVT_SET_FLAG(cpvt, CALL_FLAG_QDC507_HANGUP_PENDING);
+                     CPVT_RESET_FLAG(cpvt, CALL_FLAG_ALIVE);
+-                    cpvt->qdc507_clcc_missing = 0;
+                 }
+             }
+         }
+--- a/src/cli.c
++++ b/src/cli.c
+@@ -200,6 +200,7 @@
+         ast_cli(a->fd, "  IMSI                    : %s\n", pvt->imsi);
+         ast_cli(a->fd, "  ICCID                   : %s\n", pvt->iccid);
+         ast_cli(a->fd, "  GSM Registration Status : %s\n", gsm_regstate2str(pvt->gsm_reg_status));
++        ast_cli(a->fd, "  LTE Registration Status : %s\n", gsm_regstate2str(pvt->lte_reg_status));
+         ast_cli(a->fd, "  RSSI                    : %d, %s\n", pvt->rssi, ast_str_buffer(rssi_str));
+         ast_cli(a->fd, "  Access technology       : %s\n", sys_act2str(pvt->act));
+         ast_cli(a->fd, "  Network Name            : %s\n", pvt->network_name);
+--- a/src/cpvt.h
++++ b/src/cpvt.h
+@@ -48,8 +48,7 @@
+     CALL_FLAG_DIRECTION        = 512,  /*!< call direction */
+     CALL_FLAG_LOCAL_CHANNEL    = 1024, /*!< local channel flag */
+     CALL_FLAG_INTERNAL_REQUEST = 2048  /*!< internal request */,
+-    CALL_FLAG_QDC507_HANGUP_PENDING = 4096 /*!< local hangup awaits CLCC */,
+-    CALL_FLAG_QDC507_CLCC_TRACKED = 8192 /*!< observed by modem CLCC */
++    CALL_FLAG_QDC507_HANGUP_PENDING = 4096 /*!< local CHUP awaits CLCC */
+ } call_flag_t;
+ 
+ #define CALL_DIR_INCOMING 1u
+@@ -66,7 +65,6 @@
+ #define MAX_CALL_IDX 31
+ 
+     call_state_t state; /*!< see also call_state_t */
+-    unsigned char qdc507_clcc_missing; /*!< complete snapshots missing */
+     unsigned int flags; /*!< see also call_flag_t */
+ 
+     int rd_pipe[2]; /*!< pipe for split read from device */
+--- a/src/monitor_thread.c
++++ b/src/monitor_thread.c
+@@ -74,6 +74,36 @@
+ 
+ static int restart_monitor_taskproc(void* tpdata) { return PVT_TASKPROC_TRYLOCK_AND_EXECUTE(tpdata, restart_monitor); }
+ 
++static void qdc507_clcc_poll(struct pvt* const pvt)
++{
++    if (!pvt->initialized) {
++        return;
++    }
++
++    if (strncmp(pvt->manufacturer, "Baiwang", 7)) {
++        return;
++    }
++
++    /*
++     * Never stack polling commands behind real AT work.
++     * The next idle timeout will try again.
++     */
++    if (!AST_LIST_EMPTY(&pvt->at_queue)) {
++        return;
++    }
++
++    if (at_enqueue_clcc(&pvt->sys_chan)) {
++        ast_log(LOG_WARNING,
++                "[%s][QDC507] Failed to enqueue periodic CLCC\n",
++                PVT_ID(pvt));
++    }
++}
++
++static int qdc507_clcc_poll_taskproc(void* tpdata)
++{
++    return PVT_TASKPROC_TRYLOCK_AND_EXECUTE(tpdata,
++                                           qdc507_clcc_poll);
++}
+ 
+ 
+ static void cmd_timeout(struct pvt* const pvt)
+@@ -202,8 +232,12 @@
+     ast_mutex_unlock(&pvt->lock);
+ 
+     int read_result = 0;
++
++    /*
++     * Updated only while pvt->lock is held.
++     * The monitor can safely use the cached value when trylock fails.
++     */
+     int qdc507_poll_enabled = 0;
+-    int qdc507_clcc_due = 0;
+ 
+     while (1) {
+         if (ast_taskprocessor_push(tps, handle_expired_reports_taskproc, pvt)) {
+@@ -211,11 +245,31 @@
+         }
+ 
+         if (ast_mutex_trylock(&pvt->lock)) {  // pvt lock not acquired
+-            int t=qdc507_poll_enabled?1000:RESPONSE_READ_TIMEOUT;
+-            if(!at_wait(fd,&t)) {
+-                if(qdc507_poll_enabled) qdc507_clcc_due=1;
+-                else if(ast_taskprocessor_push(tps,at_enqueue_ping_taskproc,pvt))
+-                    ast_debug(5,"[%s] Unable to handle timeout\n",dev);
++            /*
++             * QDC507 must not fall back to the upstream 10-second
++             * wait merely because the response taskprocessor owns
++             * pvt->lock briefly.
++             */
++            int t = qdc507_poll_enabled ? 1000 : RESPONSE_READ_TIMEOUT;
++
++            if (!at_wait(fd, &t)) {
++                if (qdc507_poll_enabled) {
++                    if (ast_taskprocessor_push(tps,
++                                               qdc507_clcc_poll_taskproc,
++                                               pvt)) {
++                        ast_debug(5,
++                                  "[%s][QDC507] Unable to poll CLCC while lock busy\n",
++                                  dev);
++                    }
++                } else {
++                    if (ast_taskprocessor_push(tps,
++                                               at_enqueue_ping_taskproc,
++                                               pvt)) {
++                        ast_debug(5,
++                                  "[%s] Unable to handle timeout\n",
++                                  dev);
++                    }
++                }
+                 continue;
+             }
+         } else {  // pvt locked
+@@ -232,14 +286,8 @@
+                 pvt->initialized &&
+                 !strncmp(pvt->manufacturer, "Baiwang", 7);
+ 
+-            const int qdc507_poll=pvt->initialized && !strncmp(pvt->manufacturer,"Baiwang",7);
+-            qdc507_poll_enabled=qdc507_poll;
+-            if(qdc507_clcc_due && qdc507_poll && AST_LIST_EMPTY(&pvt->at_queue)) {
+-                qdc507_clcc_due=0;
+-                if(at_enqueue_clcc(&pvt->sys_chan))
+-                    ast_log(LOG_WARNING,"[%s][QDC507] monitor CLCC enqueue failed\n",PVT_ID(pvt));
+-                else ast_debug(3,"[%s][QDC507] monitor-owned CLCC queued\n",PVT_ID(pvt));
+-            } else if(qdc507_clcc_due && !qdc507_poll) qdc507_clcc_due=0;
++            const int qdc507_poll = qdc507_poll_enabled;
++
+             int t;
+             int is_cmd_timeout = 1;
+             if (at_queue_timeout(pvt, &t)) {
+@@ -265,28 +313,51 @@
+                         continue;
+                     }
+                 } else {
+-                    /* Responses are consumed on the serializer, not here. A
+-                     * successful CLCC can leave this thread sleeping until
+-                     * the old command's 5-second deadline. Recheck QDC507's
+-                     * queue at most every second, without generating a false
+-                     * command timeout on an ordinary 1-second wake-up. */
++                    /*
++                     * A response handled by the serializer does not wake this
++                     * fd wait. Recheck QDC507's queue within one second instead
++                     * of sleeping until an already completed command's deadline.
++                     * A slice expiry is not a command timeout; keep its deadline.
++                     */
+                     const int sliced = qdc507_poll && t > 1000;
+-                    if (sliced) t = 1000;
++                    if (sliced) {
++                        t = 1000;
++                    }
+                     if (!at_wait(fd, &t)) {
+-                        if (!sliced) {
+-                            if (ast_taskprocessor_push(tps, cmd_timeout_taskproc, pvt)) {
+-                                ast_debug(5, "[%s] Unable to handle timeout\n", dev);
+-                            }
++                        if (!sliced && ast_taskprocessor_push(tps, cmd_timeout_taskproc, pvt)) {
++                            ast_debug(5, "[%s] Unable to handle timeout\n", dev);
+                         }
+                         continue;
+                     }
+                 }
+             } else {
+                 t = qdc507_poll ? 1000 : RESPONSE_READ_TIMEOUT;
++
+                 if (!at_wait(fd, &t)) {
+-                    if (qdc507_poll) qdc507_clcc_due=1;
+-                    else if (ast_taskprocessor_push(tps, at_enqueue_ping_taskproc, pvt))
+-                        ast_debug(5, "[%s] Unable to handle timeout\n", dev);
++                    if (check_taskprocessor(tps, dev)) {
++                        if (ast_taskprocessor_push(tps, restart_monitor_taskproc, pvt)) {
++                            ast_debug(5, "[%s] Unable to restart monitor thread\\n", dev);
++                        }
++                    }
++
++                    if (qdc507_poll) {
++                        if (ast_taskprocessor_push(tps,
++                                                   qdc507_clcc_poll_taskproc,
++                                                   pvt)) {
++                            ast_debug(5,
++                                      "[%s][QDC507] Unable to poll CLCC\\n",
++                                      dev);
++                        }
++                    } else {
++                        if (ast_taskprocessor_push(tps,
++                                                   at_enqueue_ping_taskproc,
++                                                   pvt)) {
++                            ast_debug(5,
++                                      "[%s] Unable to handle timeout\\n",
++                                      dev);
++                        }
++                    }
++
+                     continue;
+                 }
+             }
+--- a/src/mutils.h
++++ b/src/mutils.h
+@@ -19,7 +19,13 @@
+ 
+ static inline const char* enum2str_def(const unsigned value, const char* const names[], const unsigned items, const char* const def)
+ {
+-    return S_COR(value < items, names[value], def);
++    /* S_COR evaluates its string argument before its condition.  In
++     * particular, registration status -1 becomes UINT_MAX here. */
++    if (value >= items) {
++        return def;
++    }
++    const char* const name = names[value];
++    return ast_strlen_zero(name) ? def : name;
+ }
+ 
+ static inline const char* enum2str(const unsigned value, const char* const names[], const unsigned items)
+--- a/src/ringbuffer.c
++++ b/src/ringbuffer.c
+@@ -161,7 +161,7 @@
+             }
+ 
+             while (i < len) {
+-                if (!memcmp(iov[1].iov_base, mem, len - i) && !memcmp(rb->buffer, mem + i, i)) {
++                if (!memcmp(iov[1].iov_base, mem, len - i) && !memcmp(rb->buffer, mem + len - i, i)) {
+                     iov[0].iov_len = iov[1].iov_base - iov[0].iov_base;
+                     iov[1].iov_len = 0;
+                     return 1;

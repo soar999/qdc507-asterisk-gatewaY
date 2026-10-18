@@ -38,7 +38,7 @@ RUN git clone --no-checkout https://github.com/AlchemillaHQ/asterisk-chan-quecte
  && test "$(git rev-parse HEAD)" = "$CHAN_QUECTEL_COMMIT" \
  && rm -rf /usr/src/asterisk-chan-quectel/.git
 
-COPY qdc507_patch.py /tmp/qdc507_patch.py
+COPY qdc507_patch.py production-20261018.patch /tmp/
 RUN python3 /tmp/qdc507_patch.py \
  && echo "=== AUDIO ===" \
  && grep -A18 -n "pvt_get_audio_format" /usr/src/asterisk-chan-quectel/src/chan_quectel.c \

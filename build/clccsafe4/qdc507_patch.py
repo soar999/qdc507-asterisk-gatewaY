@@ -1,9 +1,14 @@
 from pathlib import Path
+import os
+import subprocess
+
+# An explicit disposable checkout can be used for offline regression tests.
+SOURCE_ROOT = os.environ.get("QDC507_SOURCE_ROOT", "/usr/src/asterisk-chan-quectel")
 
 # ============================================================
 # 1. QDC507 external UAC: slin48 -> slin 8kHz
 # ============================================================
-p = Path("/usr/src/asterisk-chan-quectel/src/chan_quectel.c")
+p = Path(SOURCE_ROOT + "/src/chan_quectel.c")
 s = p.read_text()
 
 start = s.index("const struct ast_format* pvt_get_audio_format")
@@ -27,7 +32,7 @@ print("QDC507: external UAC set to 8 kHz")
 # ============================================================
 # 2. Baiwang/QDC507 is voice capable
 # ============================================================
-p = Path("/usr/src/asterisk-chan-quectel/src/at_response.c")
+p = Path(SOURCE_ROOT + "/src/at_response.c")
 s = p.read_text()
 
 start = s.index("static int at_response_cgmi")
@@ -56,7 +61,7 @@ print("QDC507: Baiwang marked voice capable")
 # ============================================================
 # 3. External UAC: do NOT link capture and playback
 # ============================================================
-p = Path("/usr/src/asterisk-chan-quectel/src/chan_quectel.c")
+p = Path(SOURCE_ROOT + "/src/chan_quectel.c")
 s = p.read_text()
 
 old = '''    const int err = snd_pcm_link(pvt->icard, pvt->ocard);
@@ -107,7 +112,7 @@ print("QDC507: capture/playback unlinked")
 # ============================================================
 # 4. Start only CAPTURE when call activates
 # ============================================================
-p = Path("/usr/src/asterisk-chan-quectel/src/cpvt.c")
+p = Path(SOURCE_ROOT + "/src/cpvt.c")
 s = p.read_text()
 
 start = s.index("void cpvt_call_activate")
@@ -204,7 +209,7 @@ from pathlib import Path
 # 6a. Add a 32-bit bitmap to pvt.
 # call_idx is 0..31.
 # ------------------------------------------------------------
-p = Path("/usr/src/asterisk-chan-quectel/src/chan_quectel.h")
+p = Path(SOURCE_ROOT + "/src/chan_quectel.h")
 s = p.read_text()
 
 needle = "    int data_fd;"
@@ -230,7 +235,7 @@ print("QDC507 CLCC: bitmap field installed")
 #
 # Do not depend on CALL_FLAG_ALIVE at all.
 # ------------------------------------------------------------
-p = Path("/usr/src/asterisk-chan-quectel/src/at_response.c")
+p = Path(SOURCE_ROOT + "/src/at_response.c")
 s = p.read_text()
 
 fn_start = s.find("static int at_response_clcc(")
@@ -377,7 +382,7 @@ print("QDC507 CLCC: trailing OK finalizer installed")
 # use real CMD_AT_CLCC, so our temporary polling test exercises
 # the same parser/finalizer.
 # ------------------------------------------------------------
-p = Path("/usr/src/asterisk-chan-quectel/src/at_command.c")
+p = Path(SOURCE_ROOT + "/src/at_command.c")
 s = p.read_text()
 
 fn = s.find("int at_enqueue_user_cmd(")
@@ -406,7 +411,7 @@ print("QDC507 CLCC BITMAP PATCH APPLIED SUCCESSFULLY")
 
 from pathlib import Path
 
-p = Path("/usr/src/asterisk-chan-quectel/src/monitor_thread.c")
+p = Path(SOURCE_ROOT + "/src/monitor_thread.c")
 s = p.read_text()
 
 # ------------------------------------------------------------
@@ -583,7 +588,7 @@ print("QDC507 CLCC POLLER PATCH APPLIED SUCCESSFULLY")
 
 
 # QDC507 unlinked-UAC playback XRUN fix
-p = Path('/usr/src/asterisk-chan-quectel/src/channel.c')
+p = Path(SOURCE_ROOT + '/src/channel.c')
 s = p.read_text()
 old = """        case SND_PCM_STATE_XRUN: {
             res = snd_pcm_prepare(pvt->icard);
@@ -617,7 +622,7 @@ print('QDC507: unlinked playback XRUN recovery fixed')
 #
 # Save entry.next BEFORE releasing the current cpvt.
 # ============================================================
-p = Path("/usr/src/asterisk-chan-quectel/src/chan_quectel.c")
+p = Path(SOURCE_ROOT + "/src/chan_quectel.c")
 s = p.read_text()
 
 old = '''    if (!PVT_NO_CHANS(pvt)) {
@@ -672,7 +677,7 @@ print("QDC507: pvt_disconnect UAF traversal fixed")
 # Cache the QDC507 state only while holding pvt->lock and use
 # that cached flag in the lock-contention branch.
 # ============================================================
-p = Path("/usr/src/asterisk-chan-quectel/src/monitor_thread.c")
+p = Path(SOURCE_ROOT + "/src/monitor_thread.c")
 s = p.read_text()
 
 old = '''    int read_result = 0;
@@ -770,7 +775,7 @@ print("QDC507: CLCC lock-contention polling fixed")
 # traces showed the modem's call list can lag until a later CLCC query.
 # Reuse chan_quectel's serialized AT queue and existing CLCC parser/finalizer:
 # do not create another serial reader or an external polling process.
-p = Path('/usr/src/asterisk-chan-quectel/src/at_response.c')
+p = Path(SOURCE_ROOT + '/src/at_response.c')
 s = p.read_text()
 old = """        case CMD_AT_CHUP:
         case CMD_AT_QHUP:
@@ -815,7 +820,7 @@ p.write_text(s)
 print('QDC507: immediate post-hangup CLCC reconciliation added')
 from pathlib import Path
 import re
-ROOT = Path('/usr/src/asterisk-chan-quectel')
+ROOT = Path(SOURCE_ROOT)
 
 def one(src, old, new, label):
     n=src.count(old)
@@ -1078,7 +1083,7 @@ s=s[:start]+section+s[end:]
 p.write_text(s)
 print('QDC507_SAFE_CLCC_PATCH_APPLIED')
 from pathlib import Path
-R=Path('/usr/src/asterisk-chan-quectel/src')
+R=Path(SOURCE_ROOT + '/src')
 def swap(p,a,b,label):
  s=p.read_text()
  if s.count(a)!=1: raise RuntimeError(f'{label}: {s.count(a)} matches')
@@ -1135,7 +1140,7 @@ s=s[:start]+f.replace(a,b,1)+s[end:]
 p.write_text(s)
 print('CLCC snapshot per-transaction reset and queue dedup applied')
 from pathlib import Path
-P=Path('/usr/src/asterisk-chan-quectel/src/monitor_thread.c')
+P=Path(SOURCE_ROOT + '/src/monitor_thread.c')
 s=P.read_text()
 a='''                } else if (!at_wait(fd, &t)) {
                     if (ast_taskprocessor_push(tps, cmd_timeout_taskproc, pvt)) {
@@ -1168,3 +1173,10 @@ if s.count(a)!=1: raise RuntimeError(f'CLCC timed wait anchor count={s.count(a)}
 s=s.replace(a,b,1)
 P.write_text(s)
 print('QDC507_CLCC_COMMAND_WAIT_RECHECK_1000MS_APPLIED')
+
+# Reconcile the historical patch stack with the accepted single-device source.
+# This also wires in the registration fix previously published as documentation.
+patch = Path(__file__).resolve().with_name("production-20261018.patch")
+subprocess.run(["git", "-C", SOURCE_ROOT, "apply", "--check", str(patch)], check=True)
+subprocess.run(["git", "-C", SOURCE_ROOT, "apply", str(patch)], check=True)
+print('QDC507_ACCEPTED_SINGLE_DEVICE_20261018_APPLIED')

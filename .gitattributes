@@ -1,0 +1,3 @@
+# Unified diff context markers and verbatim upstream license formatting.
+build/clccsafe4/production-20261018.patch whitespace=-blank-at-eol
+build/clccsafe4/LICENSE.md whitespace=-blank-at-eol
