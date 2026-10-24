@@ -13,6 +13,19 @@ Includes:
 
 Production passwords, private network configuration, device identifiers, logs and SMS data are intentionally excluded.
 
+## Dual-mode source integration (2026-10-24)
+
+Adds the accepted opt-in serial16k fast-poll/deadline source chain (`c3e9638…`),
+parallel pre-audio preparation without a host periodic ADB heartbeat or a 150 s
+call-duration limit, and reference integration into the original 8k/16k modes.
+The existing 8k build is preserved.
+
+**This is a source/test integration kit, not a complete independently rebuildable
+or ready-to-deploy dual-mode system.** Private configuration and original mode
+manager/deployment prerequisites are not included. Templates must be adapted
+privately; accepted binary hashes are references, not a reproducible-build claim.
+See [included material, offline tests and missing prerequisites](docs/dualmode-20261024.md).
+
 ## Current accepted single-device driver (2026-10-18)
 
 The build now includes the accepted registration, enum-bounds, hangup/CLCC

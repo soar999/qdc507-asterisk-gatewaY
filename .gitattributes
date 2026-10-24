@@ -1,3 +1,8 @@
 # Unified diff context markers and verbatim upstream license formatting.
 build/clccsafe4/production-20261018.patch whitespace=-blank-at-eol
 build/clccsafe4/LICENSE.md whitespace=-blank-at-eol
+# Literal unified-diff blank context lines (including final context lines).
+build/dualmode/mainline-integration.patch whitespace=-blank-at-eol,-blank-at-eof
+build/serial16k/01-timeoutfix.patch whitespace=-blank-at-eol,-blank-at-eof
+build/serial16k/02-fastpoll.patch whitespace=-blank-at-eol
+config/dualmode-outbound.patch whitespace=-blank-at-eol

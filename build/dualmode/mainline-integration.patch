@@ -1,0 +1,433 @@
+--- a/container/usr/local/bin/entrypoint.sh
++++ b/container/usr/local/bin/entrypoint.sh
+@@ -56,4 +56,9 @@
+     set -- "${new_args[@]}"
+ fi
+ 
++# Preparation only: after UID/GID adaptation, before any Asterisk process.
++if [ -f /etc/qdc507-mode/current ] && [ "$(cat /etc/qdc507-mode/current)" = 16k ]; then
++    [ "$(id -u)" = 0 ] || { echo PREAUDIO_BOOT_REQUIRES_ROOT >&2; exit 47; }
++    /usr/bin/python3 -B /opt/qdc16k-preaudio-manual/prepare.py --boot
++fi
+ exec "$@"
+--- a/nas/qdc507-dualmode-image-v2.py
++++ b/nas/qdc507-dualmode-image-v2.py
+@@ -37,6 +37,8 @@
+ MODULE = '/usr/lib/asterisk/modules/chan_quectel.so'
+ MANIFEST = 'dualmode-build-manifest.json'
+ LIVE_MODULE_NAME = 'qdc507-live-production-8k-chan_quectel.so'
++PAYLOAD = Path(__file__).resolve().parent / 'qdc507-preaudio-runtime'
++PIN16 = 'c3e9638d45da696096240a8c455b64a0d3c747a4bcfc41fbb22d75453c2b9fdf'
+ V7_SHA = 'ef6c208c3f67b969d699b2c8dab6fcba257af1c1424792561d438408580d4029'
+ GUARD_SHA = '7375b61dc6e8661d02ef17f98097ccae3598782c466b06a50c90ff5454515e71'
+ GUARD = ROOT / ('qdc507-16k-d5-clock8-guard16-build-v1/output/'
+@@ -113,22 +115,36 @@
+          'GUARD16_BINARY_MISSING_OR_HASH_CHANGED')
+     p = inspect(['docker', 'inspect', PROD])
+     need(bool((p.get('State') or {}).get('Running')), 'PROD_NOT_RUNNING')
+-    need((p.get('Config') or {}).get('Image') == IMG8,
+-         'PRODUCTION_IMAGE_TAG_CHANGED')
++    live_tag = (p.get('Config') or {}).get('Image')
++    import importlib.util
++    spec = importlib.util.spec_from_file_location('qdc_build_cutover', str(ROOT / 'qdc507-mode-cutover-v1.py'))
++    cutover = importlib.util.module_from_spec(spec); spec.loader.exec_module(cutover)
++    need(live_tag in (IMG8, cutover.DUAL), 'PRODUCTION_IMAGE_TAG_CHANGED')
++    if live_tag != IMG8:
++        # A 16k live module is not the 8k source. The immutable 8k slot
++        # remains available without restarting or switching production.
++        state = cutover.state_read()
++        need(state and state.get('phase') == 'COMPLETE', 'CUTOVER_NOT_COMPLETE')
++        cutover.verify_containers(state)
+     i8 = inspect(['docker', 'image', 'inspect', IMG8])
+     i16 = inspect(['docker', 'image', 'inspect', IMG16])
+-    need(p.get('Image') == i8.get('Id'), 'PRODUCTION_AND_8K_IMAGE_DIFFER')
++    if live_tag == IMG8:
++        need(p.get('Image') == i8.get('Id'), 'PRODUCTION_AND_8K_IMAGE_DIFFER')
+     need(i8.get('Architecture') == i16.get('Architecture') == 'amd64',
+          'SOURCE_IMAGE_ARCH_MISMATCH')
+     u16 = str((i16.get('Config') or {}).get('User') or 'root')
+     need(u16 in ('root', '0', '0:0'), '16K_IMAGE_DEFAULT_USER_NOT_ROOT')
++    need(sha256(PAYLOAD / 'chan_quectel-16k.so') == PIN16, 'ACCEPTED_16K_PAYLOAD_CHANGED')
+     verify_stage_candidate(i16.get('Id'))
+     h8, h16 = image_fingerprint(IMG8), image_fingerprint(IMG16)
+     need(h16['module_sha'] == V7_SHA, 'V7_16K_MODULE_HASH_CHANGED')
++    source_path = MODULE if live_tag == IMG8 else '/opt/qdc507/modes/8k/chan_quectel.so'
++    # ADB is a runtime bind (helpers/adb), not an image build dependency.
+     live = cmd(['docker', 'exec', PROD, '/bin/sh', '-c',
+-                'sha256sum '+MODULE], timeout=18)
++                'test -x /usr/local/bin/adb && sha256sum '+source_path], timeout=18)
+     livehash = live.strip().split()[0] if live.strip() else ''
+-    need(bool(re.fullmatch(r'[a-f0-9]{64}',livehash)), 'LIVE_8K_MODULE_HASH_INVALID')
++    need(livehash == '9899154c0869a7e7a62112c2cace1e3ebdf2d22a245371559fab15e912de320f',
++         'PINNED_8K_SOURCE_CHANGED')
+     # The active container can legitimately carry a post-image production fix.
+     # Never silently fall back to the older image's 8k driver.
+     emit('LIVE_8K_MODULE_SHA256', livehash)
+@@ -139,7 +155,8 @@
+     need(livehash != h16['module_sha'], 'LIVE_8K_AND_16K_MODULES_IDENTICAL')
+     need(h8['asterisk_version'] == h16['asterisk_version'],
+          'ASTERISK_SOURCE_VERSIONS_DIFFER')
+-    emit('PROD8K_LIVE_DRIVER_SELECTED_AS_SOURCE', 1)
++    emit('PINNED_8K_SOURCE_PATH', source_path)
++    emit('PINNED_8K_SOURCE_VERIFIED', 1)
+     emit('V7_16K_DRIVER_PIN_VERIFIED', 1)
+     emit('SOURCE_ASTERISK_VERSION', h16['asterisk_version'])
+     emit('GUARD16_AUDIO_PIN_VERIFIED', 1)
+@@ -148,10 +165,12 @@
+     emit('PROD_NOT_CHANGED', 1)
+     emit('LIVE_LOADED_MODULE_IDENTITY_NOT_PROVEN', 1)
+     return {'source_8k_image_id': i8['Id'], 'source_16k_image_id': i16['Id'],
++            'source_8k_path': source_path,
++            'source_8k_container_image_id': p['Image'],
+             'live_8k_container_id': p['Id'],
+             'source_8k_image_module_sha256': h8['module_sha'],
+             'source_8k_module_sha256': livehash,
+-            'source_16k_module_sha256': h16['module_sha'],
++            'source_16k_module_sha256': PIN16,
+             'asterisk_version': h16['asterisk_version'],
+             'v7_image_original_entrypoint': (i16.get('Config') or {}).get('Entrypoint'),
+             'v7_image_original_cmd': (i16.get('Config') or {}).get('Cmd'),
+@@ -163,17 +182,20 @@
+     # Mode selection is opt-in: image's original ENTRYPOINT and CMD untouched.
+     lines = [
+         '# AUTO-GENERATED QDC507 DUAL-MODE IMAGE. OFFLINE BUILD ONLY.',
+-        'FROM {} AS qdc_source_16k'.format(IMG16),
+-        'FROM {}'.format(IMG16),
++        'FROM {} AS qdc_source_16k'.format(info['source_16k_image_id']),
++        'FROM {}'.format(info['source_16k_image_id']),
+         'USER root',
+         'RUN mkdir -p /opt/qdc507/modes/8k /opt/qdc507/modes/16k',
+         'COPY {} /opt/qdc507/modes/8k/chan_quectel.so'.format(LIVE_MODULE_NAME),
+-        'COPY --from=qdc_source_16k {} /opt/qdc507/modes/16k/chan_quectel.so'.format(MODULE),
++        'COPY qdc507-preaudio-runtime/chan_quectel-16k.so /opt/qdc507/modes/16k/chan_quectel.so',
++        'COPY qdc507-preaudio-runtime/ /opt/qdc16k-preaudio-manual/',
++        'COPY entrypoint.sh /usr/local/bin/entrypoint.sh',
++        'RUN chmod 755 /usr/local/bin/entrypoint.sh /opt/qdc16k-preaudio-manual/agi-wrapper && chmod 644 /opt/qdc16k-preaudio-manual/*.py && command -v python3',
+         'COPY qdc507-mode-boot.sh /usr/local/sbin/qdc507-mode-boot.sh',
+         'RUN chmod 755 /usr/local/sbin/qdc507-mode-boot.sh',
+         ' && test "$(sha256sum /opt/qdc507/modes/8k/chan_quectel.so | cut -d \' \' -f1)" = "{}"'.format(sha8),
+         ' && test "$(sha256sum /opt/qdc507/modes/16k/chan_quectel.so | cut -d \' \' -f1)" = "{}"'.format(sha16),
+-        ' && test "$(sha256sum {} | cut -d \' \' -f1)" = "{}"'.format(MODULE, sha16),
++        ' && cp /opt/qdc507/modes/16k/chan_quectel.so {}'.format(MODULE),
+         ' && ldd /opt/qdc507/modes/8k/chan_quectel.so > /tmp/qdc507-8k-ldd.txt',
+         ' && ! grep -Fq "not found" /tmp/qdc507-8k-ldd.txt',
+         ' && ldd /opt/qdc507/modes/16k/chan_quectel.so > /tmp/qdc507-16k-ldd.txt',
+@@ -202,8 +224,10 @@
+             'qdc507-mode-boot.sh': make_boot(info),
+             'README.txt': '''QDC507 one-container dual-mode driver image V2 (BUILD ONLY).\n
+ This directory has no production secrets and does not alter Docker state until\n--build. The generated Docker image preserves the original V7 Asterisk boot\ncommand, and contains the 8k stable driver and V7 16k driver.\n
+-8k source is a pinned snapshot from the LIVE 8k production container,
+-not the possibly stale original image module.
++8k source is the SHA-pinned /opt/qdc507/modes/8k/chan_quectel.so slot
++of the verified current dual-mode container, even while production runs 16k.
++Only the original single-mode image uses its verified production module path.
++Never switch production mode to prepare or build this image.
+ This verifies only the on-disk driver, not what the running Asterisk process
+ may have loaded earlier; a production call test is still mandatory.
+ The supplied qdc507-mode-boot.sh is NOT the image default ENTRYPOINT.\nFuture production mode manager must select 8k/16k before starting Asterisk,\nchange qdc507.conf / helper policy, and mount union IF1/IF2+UAC devices.\nThe same container can be restarted for subsequent mode changes.\n
+@@ -220,6 +244,8 @@
+     BUILD_DIR.mkdir(mode=0o700)
+     try:
+         files = expected_files(info)
++        shutil.copytree(str(PAYLOAD), str(BUILD_DIR / 'qdc507-preaudio-runtime'))
++        shutil.copyfile(str(PAYLOAD / 'entrypoint.sh'), str(BUILD_DIR / 'entrypoint.sh'))
+         checks = {}
+         for name, content in files.items():
+             p = BUILD_DIR / name
+@@ -228,6 +254,9 @@
+                 fd.flush(); os.fsync(fd.fileno())
+             os.chmod(str(p), 0o700 if name.endswith('.sh') else 0o600)
+             checks[name] = sha256(p)
++        for p in sorted((BUILD_DIR / 'qdc507-preaudio-runtime').iterdir()):
++            checks[str(p.relative_to(BUILD_DIR))] = sha256(p)
++        checks['entrypoint.sh'] = sha256(BUILD_DIR / 'entrypoint.sh')
+         data = dict(info)
+         data['format'] = 'qdc507-dualmode-image-build-v2-live8k'
+         data['input_files_sha256'] = checks
+@@ -235,16 +264,17 @@
+         # docker cp reads only, with no exec into Asterisk or live file changes.
+         module_stage = BUILD_DIR / LIVE_MODULE_NAME
+         temp_module = BUILD_DIR / (LIVE_MODULE_NAME + '.copying')
+-        cmd(['docker', 'cp', PROD + ':' + MODULE, str(temp_module)], timeout=35)
++        cmd(['docker', 'cp', info['live_8k_container_id'] + ':' + info['source_8k_path'], str(temp_module)], timeout=35)
+         need(temp_module.is_file() and not temp_module.is_symlink(),
+              'LIVE_8K_DRIVER_COPY_NOT_REGULAR_FILE')
+         need(sha256(temp_module) == info['source_8k_module_sha256'],
+              'LIVE_8K_DRIVER_COPY_HASH_CHANGED')
+         live_now = inspect(['docker', 'inspect', PROD])
+         need(live_now.get('Id') == info['live_8k_container_id'] and
++             live_now.get('Image') == info['source_8k_container_image_id'] and
+              bool((live_now.get('State') or {}).get('Running')),
+              'LIVE_8K_CONTAINER_CHANGED_DURING_SNAPSHOT')
+-        snap_hash = cmd(['docker','exec',PROD,'sha256sum',MODULE],timeout=18).strip().split()[0]
++        snap_hash = cmd(['docker','exec',info['live_8k_container_id'],'sha256sum',info['source_8k_path']],timeout=18).strip().split()[0]
+         need(snap_hash == info['source_8k_module_sha256'],
+              'LIVE_8K_MODULE_CHANGED_DURING_SNAPSHOT')
+         os.replace(str(temp_module), str(module_stage))
+@@ -278,6 +308,10 @@
+     need(sha256(module_snapshot) == info['source_8k_module_sha256'] and
+          data.get('live_8k_binary_sha256') == info['source_8k_module_sha256'],
+          'LIVE_8K_BINARY_SNAPSHOT_HASH_CHANGED')
++    for name, digest in data['input_files_sha256'].items():
++        p = BUILD_DIR / name
++        need(p.is_file() and not p.is_symlink() and sha256(p) == digest,
++             'BUILD_INPUT_CHANGED_' + name)
+     files = expected_files(info)
+     for name, content in files.items():
+         p = BUILD_DIR / name
+@@ -337,7 +371,15 @@
+     g = p.add_mutually_exclusive_group(required=True)
+     for act in ('check', 'prepare', 'build', 'verify'):
+         g.add_argument('--'+act, action='store_true')
++    global IMGDUAL, BUILD_DIR
++    p.add_argument('--build-tag', default=IMGDUAL,
++                   help='Optional isolated candidate tag; never rewrites cutover C.DUAL')
++    p.add_argument('--build-dir', type=Path, default=BUILD_DIR,
++                   help='Fresh private context; never overwrite the frozen V2 build')
+     args = p.parse_args()
++    need(bool(re.fullmatch(r'[a-z0-9][a-z0-9._/:\-]+', args.build_tag)), 'INVALID_BUILD_TAG')
++    IMGDUAL = args.build_tag
++    BUILD_DIR = args.build_dir
+     info = facts()
+     if args.check:
+         if BUILD_DIR.exists(): staged_verify(info)
+--- a/nas/qdc507-dualmode-profiles-v1.py
++++ b/nas/qdc507-dualmode-profiles-v1.py
+@@ -35,7 +35,7 @@
+ IMG16 = 'qdc507-asterisk:22.10.1-serial16k-v7-lab'
+ GUARD_SHA = '7375b61dc6e8661d02ef17f98097ccae3598782c466b06a50c90ff5454515e71'
+ PIN_8 = '9899154c0869a7e7a62112c2cace1e3ebdf2d22a245371559fab15e912de320f'
+-PIN_16 = 'ef6c208c3f67b969d699b2c8dab6fcba257af1c1424792561d438408580d4029'
++PIN_16 = 'c3e9638d45da696096240a8c455b64a0d3c747a4bcfc41fbb22d75453c2b9fdf'
+ FILE_MAP = {
+     '8k': {
+         'quectel.conf': ('/etc/asterisk', 'quectel.conf'),
+@@ -125,6 +125,9 @@
+             for filename, (_, subpath) in FILE_MAP['16k'].items()
+         }
+     }
++    for p in sorted((Path(__file__).resolve().parent / 'qdc507-preaudio-runtime').iterdir()):
++        if p.is_file() and not p.is_symlink():
++            base['16k']['preaudio/' + p.name] = p
+     # Carry the ENTIRE verified V7 runtime, not just its start/stop hooks.
+     # This includes D4/D6 helpers and assets required after modem reboot.
+     runtime = CAND / 'runtime'
+--- a/nas/qdc507-mode-cutover-v1.py
++++ b/nas/qdc507-mode-cutover-v1.py
+@@ -40,6 +40,29 @@
+ PIN8='9899154c0869a7e7a62112c2cace1e3ebdf2d22a245371559fab15e912de320f'
+ TIMER='qdc507-sms-tick.timer'
+ WORKER='qdc507-sms-tick.service'
++ACTIVE=ROOT/'qdc507-active-cutover.json'
++
++
++def select_active():
++    """Optional upgrade generation; never rewrite the initial plan/history."""
++    global PLAN, STATE, BACKUP, DUAL
++    if ACTIVE.is_symlink():
++        raise RuntimeError('ACTIVE_CUTOVER_SYMLINK')
++    if not ACTIVE.exists():
++        return
++    need(ACTIVE.is_file() and not ACTIVE.is_symlink() and
++         ACTIVE.stat().st_uid == 0 and ACTIVE.stat().st_mode & 0o077 == 0,
++         'ACTIVE_CUTOVER_UNSAFE')
++    a=json.loads(ACTIVE.read_text())
++    p=Path(a['plan'])
++    need(p.parent == ROOT and p.name.startswith('qdc507-mode-upgrade-') and
++         not p.is_symlink(), 'ACTIVE_PLAN_PATH_UNSAFE')
++    need(digest(p/'plan.json') == a['plan_sha256'], 'ACTIVE_PLAN_CHANGED')
++    data=json.loads((p/'plan.json').read_text())
++    need(data.get('upgrade_format') == 'qdc507-mode-upgrade-v1', 'ACTIVE_FORMAT_UNKNOWN')
++    PLAN=p; STATE=p/'cutover-state.json'; DUAL=data['target_image']
++    BACKUP=data['upgrade']['backup_name']
++
+ 
+ 
+ def emit(k,v=1):
+@@ -232,6 +255,10 @@
+     need(not old['State']['Running'],'BACKUP_8K_SHOULD_BE_STOPPED')
+     need(new and new.get('Config',{}).get('Image')==DUAL,
+          'EXPECTED_NEW_DUALMODE_CONTAINER_NOT_FOUND')
++    if v.get('upgrade_format'):
++        need(new['Id']==v.get('new_id') and new.get('Image')==v.get('new_image_id'),
++             'UPGRADED_CONTAINER_ID_OR_IMAGE_CHANGED')
++        need(v.get('dual_image')==DUAL, 'UPGRADED_TAG_CHANGED')
+     return old,new
+ 
+ 
+@@ -397,6 +424,8 @@
+         g.add_argument('--'+a,action='store_true')
+     ap.add_argument('--confirm-idle',action='store_true')
+     a=ap.parse_args()
++    need(not ACTIVE.exists() or a.status,
++         'UPGRADE_GENERATION_USE_MODE_UPGRADE_ENTRY_NOT_INITIAL_CUTOVER')
+     fd=lock_operation()
+     try:
+         if a.check:preflight()
+@@ -411,6 +440,8 @@
+     finally:
+         os.close(fd)
+ 
++select_active()
++
+ if __name__=='__main__':
+     try:sys.exit(main())
+     except Exception as e:
+--- a/nas/qdc507-mode.py
++++ b/nas/qdc507-mode.py
+@@ -13,6 +13,7 @@
+ def load(name,fn):
+  s=importlib.util.spec_from_file_location(name,str(fn));m=importlib.util.module_from_spec(s);s.loader.exec_module(m);return m
+ C=load('cutover',R/'qdc507-mode-cutover-v1.py')
++Q=C.PLAN; MODE=Q/'mode/current'; J=Q/'mode-switch.pending.json'
+ U=load('usbmap',R/'qdc507-usb-map-v1.py')
+ 
+ def need(x,msg):
+@@ -30,11 +31,12 @@
+ def check(target):
+  need(not J.exists(),'PENDING_SWITCH_JOURNAL_EXISTS_STOP_AND_INSPECT')
+  v=mode();need(v in PINS and target in PINS,'INVALID_MODE')
+- need(sha(GUARD)=='d1fedc27f773af6461a5b426b22fe1401266d6ad6c72437f9b0834faebf7f06b','GUARD16_AB_SCRIPT_CHANGED')
++ need(sha(GUARD)=='d38fd6de2e898bc10c751eb62ed479a3c482734a4f7d29829fb2d96307c708a6','GUARD16_AB_SCRIPT_CHANGED')
+  plan=json.loads((Q/'plan.json').read_text());d=plan['source_profile_hashes']
+  for k in PINS:
+-  for f in ('quectel.conf','modules.conf'):
+-   need(sha(cfg(k,f))==d[k][f],'PROFILE_CHANGED_'+k+'_'+f)
++  for f,h in d[k].items():
++   need(cfg(k,f).is_file() and not cfg(k,f).is_symlink() and sha(cfg(k,f))==h,
++        'PROFILE_CHANGED_'+k+'_'+f)
+  need(sha(CF)==d[v]['quectel.conf'] and sha(MF)==d[v]['modules.conf'],
+       'LIVE_MODE_CONFIG_MISMATCH_'+v)
+  s=C.state_read();need(s and s['phase']=='COMPLETE','CUTOVER_NOT_COMPLETE')
+@@ -55,16 +57,29 @@
+  need(p.returncode==0,'GUARD16_'+action+'_FAILED '+(p.stderr+p.stdout)[-240:])
+  return p.stdout
+ 
++def prepare_preaudio():
++ root=R/'qdc507-preaudio-runtime'
++ m=load('preaudio_prepare',root/'prepare.py')
++ m.prepare('/usr/local/libexec/qdc507/adb',root/'device.sh')
++
+ def stage_guard():
++ root=R/'qdc507-preaudio-runtime'
++ m=load('preaudio_prepare',root/'prepare.py')
++ m.restore_missing_runtime('/usr/local/libexec/qdc507/adb',root)
+  s=ab('--check');need('READ_ONLY_CHECK_PASSED=1' in s,'GUARD_UNSAFE')
++ if 'GUARD16_DEVICE_STATE=ACCEPTED_RUNTIME_PINNED' in s:
++  prepare_preaudio();emit('GUARD16_ACCEPTED_RUNTIME_RETAINED');return
+  if 'GUARD16_STAGE_STATE=NOT_STAGED' in s:ab('--stage')
+  if 'GUARD16_DEVICE_STATE=BASELINE' in s:ab('--activate')
+  need('GUARD16_DEVICE_STATE=ACTIVE_READY_TO_REVERT' in ab('--check'),
+       'GUARD16_ACTIVATE_NOT_VERIFIED')
++ prepare_preaudio()
+  emit('GUARD16_ACTIVE')
+ 
+ def revert_guard():
+  s=ab('--check');need('READ_ONLY_CHECK_PASSED=1' in s,'GUARD_UNSAFE_TO_REVERT')
++ if 'GUARD16_DEVICE_STATE=ACCEPTED_RUNTIME_PINNED' in s:
++  emit('GUARD16_ACCEPTED_RUNTIME_RETAINED_DORMANT_IN_8K');return
+  if 'GUARD16_DEVICE_STATE=ACTIVE_READY_TO_REVERT' in s:ab('--revert')
+  else:need('GUARD16_DEVICE_STATE=BASELINE' in s,'GUARD_UNKNOWN_STATE')
+  emit('GUARD16_BASELINE')
+@@ -102,6 +117,7 @@
+ def switch(target):
+  current=check(target)
+  if current==target:
++  if target=='16k':stage_guard()
+   emit('ALREADY_IN_MODE',current);return
+  journal(current,target)
+  stopped=False;safe_restored=False
+@@ -143,6 +159,10 @@
+  lock=C.lock_operation()
+  try:
+   if sys.argv[1]=='status':
++   s=C.state_read();need(s and s.get('phase')=='COMPLETE','CUTOVER_NOT_COMPLETE')
++   _,live=C.verify_containers(s)
++   emit('PRODUCTION_CONTAINER_ID',live['Id']);emit('PRODUCTION_IMAGE',live['Config']['Image'])
++   emit('ACTIVE_PLAN',Q)
+    emit('CURRENT_MODE',mode());emit('SWITCH_PENDING',int(J.exists()))
+    emit('SMS_TIMER',C.sms_state()[0]);return
+   need(sys.stdin.isatty(),'REQUIRE_INTERACTIVE_SSH')
+--- a/nas/qdc507-v7-d5-clock8-guard16-ab-v1.py
++++ b/nas/qdc507-v7-d5-clock8-guard16-ab-v1.py
+@@ -145,6 +145,10 @@
+ def remote_snapshot():
+     return parse_kv(shell(r'''set -eu
+ D=/tmp/qdc507-serial16k-v7
++# An owned preaudio lifecycle must never be inspected as safely stopped.
++for p in /tmp/qdc16k-preaudio-manual/state/owner /tmp/qdc16k-preaudio-manual/state/lock; do
++ [ ! -e "$p" ] && [ ! -L "$p" ] || exit 91
++done
+ printf 'STATUS='; cat "$D/status" 2>/dev/null || echo MISSING
+ printf 'CURRENT_HASH='; sha256sum "$D/bridge-d5" | cut -d ' ' -f1
+ printf 'CURRENT_IS_LINK='; if [ -L "$D/bridge-d5" ]; then echo 1; else echo 0; fi
+@@ -169,8 +173,12 @@
+                 'BACKUP_HASH', 'OLD_AB_BACKUP', 'V1_AB_BACKUP', 'RUNNER_HASH', 'AUDIO_ENABLE',
+                 'PCM_4p', 'PCM_4c', 'PCM_5p', 'PCM_6c'):
+         need(key in state, 'DEVICE_SNAPSHOT_MISSING_' + key)
+-    need(state['STATUS'] == 'DONE d4=0 d5=0', 'DEVICE_V7_SUPERVISOR_NOT_CLEAN')
+-    need(state['RUNNER_HASH'] == sha256(RUNNER), 'DEVICE_V7_RUNNER_HASH_CHANGED')
++    need(state['STATUS'] == 'DONE d4=0 d5=0' or
++         (state['STATUS'] == 'MISSING' and is_runtime_active(state)),
++         'DEVICE_V7_SUPERVISOR_NOT_CLEAN')
++    need(state['RUNNER_HASH'] in (sha256(RUNNER),
++         '38070547ef168629f32be3fe349b2a517c2fff6177cfe2b6cd15e22c8c6fa778'),
++         'DEVICE_V7_RUNNER_HASH_CHANGED')
+     need(state['AUDIO_ENABLE'] == '0', 'DEVICE_AUDIO_ENABLE_NOT_ZERO')
+     for key in ('PCM_4p', 'PCM_4c', 'PCM_5p', 'PCM_6c'):
+         need(state[key] == 'closed', 'DEVICE_PCM_NOT_CLOSED_' + key)
+@@ -194,6 +202,15 @@
+             and s['OLD_AB_BACKUP'] == 'ABSENT' and s['V1_AB_BACKUP'] == 'ABSENT')
+ 
+ 
++def is_runtime_active(s):
++    # Accepted runtime can carry the pinned Guard16 as a regular binary.
++    # This is NOT an A/B activation and has no invented backup history.
++    return (s['CURRENT_HASH'] == CLOCK_SHA and s['CURRENT_IS_LINK'] == '0'
++            and s['CURRENT_TARGET'] == 'NONE' and s['BACKUP_HASH'] == 'ABSENT'
++            and s['OLD_AB_BACKUP'] == 'ABSENT' and s['V1_AB_BACKUP'] == 'ABSENT'
++            and s['RUNNER_HASH'] == '38070547ef168629f32be3fe349b2a517c2fff6177cfe2b6cd15e22c8c6fa778')
++
++
+ def ensure_no_temps(s):
+     need(s['UPLOAD_TEMP'] == 'ABSENT', 'GUARD16_UPLOAD_TEMP_LEFTOVER_HALT')
+     need(s['LINK_TEMP'] == 'ABSENT', 'GUARD16_LINK_TEMP_LEFTOVER_HALT')
+@@ -206,6 +223,8 @@
+         emit('GUARD16_DEVICE_STATE', 'BASELINE')
+     elif is_active(state):
+         emit('GUARD16_DEVICE_STATE', 'ACTIVE_READY_TO_REVERT')
++    elif is_runtime_active(state):
++        emit('GUARD16_DEVICE_STATE', 'ACCEPTED_RUNTIME_PINNED')
+     elif state['CURRENT_HASH'] == PERIOD_SHA:
+         raise RuntimeError('PERIOD256_ACTIVE_REVERT_PERIOD_AB_FIRST')
+     elif state['CURRENT_HASH'] == '55f7221fe5de7264537014c13218b421393ab689c5e2366fa0b478580a34cfb6':
+@@ -223,6 +242,13 @@
+     emit('READ_ONLY_CHECK_PASSED')
+ 
+ 
++def prepare_preaudio():
++    import importlib.util
++    root = Path(__file__).resolve().parent / 'qdc507-preaudio-runtime'
++    spec = importlib.util.spec_from_file_location('qdc_preaudio_prepare', str(root / 'prepare.py'))
++    mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
++    mod.prepare(ADB, root / 'device.sh', active=False)
++
+ def stage():
+     safe_idle()
+     state = verified_snapshot()
+@@ -230,6 +256,7 @@
+     ensure_no_temps(state)
+     if (state['STAGED_HASH'] == CLOCK_SHA and state['STAGED_EXEC'] == '1'
+             and state['STAGED_IS_LINK'] == '0'):
++        prepare_preaudio()
+         emit('GUARD16_ALREADY_STAGED_AND_VERIFIED')
+         return
+     need(state['STAGED_HASH'] == 'ABSENT' and state['STAGED_IS_LINK'] == '0',
+@@ -257,6 +284,7 @@
+ '''.format(CLOCK_SHA))
+     need(parse_kv(out).get('STAGED_HASH') == CLOCK_SHA,
+          'GUARD16_REMOTE_STAGE_HASH_POSTCHECK_FAILED')
++    prepare_preaudio()
+     emit('GUARD16_STAGED_ON_DEVICE_UNUSED')
+     emit('NO_AUDIO_SWITCH_OR_SERVICE_CHANGE')
+ 

@@ -1,0 +1,44 @@
+--- extensions.original.conf
++++ extensions.candidate.conf
+@@ -104,7 +104,20 @@
+ 
+ exten => _7X.,1,NoOp(USBQDC507outboundviaqtestto${EXTEN:1})
+ 
++ same => n,Set(QDC_PA_MODE=${TRIM(${FILE(/etc/qdc507-mode/current)})})
++ same => n,GotoIf($["${QDC_PA_MODE}" = "16k"]?pa16)
+  same => n,Dial(Quectel/quectel0/${EXTEN:1},120,rU(qdc-audio-start^${UNIQUEID}))
++ same => n,Hangup()
++ same => n(pa16),Set(QDC_PA_ID=${UNIQUEID})
++ same => n,Set(CHANNEL(hangup_handler_push)=qdc16k-pa-cancel,s,1(${QDC_PA_ID}))
++ same => n,Set(AGISIGHUP=yes)
++ same => n,Set(AGIEXITONHANGUP=no)
++ same => n,Set(QDC_PA_SUBMITTED=0)
++ same => n,AGI(/opt/qdc16k-preaudio-manual/agi-wrapper,submit,${QDC_PA_ID})
++ same => n,GotoIf($["${QDC_PA_SUBMITTED}" != "1"]?pa-fail)
++ same => n,Dial(Quectel/quectel0/${EXTEN:1},120,rU(qdc16k-pa-wait^${QDC_PA_ID}))
++ same => n,Gosub(qdc16k-pa-cancel,s,1(${QDC_PA_ID}))
++ same => n(pa-fail),Hangup()
+ 
+  same => n,Hangup()
+ 
+@@ -708,3 +721,20 @@
+ 
+ 
+  same => n,Return()
++
++; Exclusive manual test window; no mode changes while installed.
++[qdc16k-pa-wait]
++exten => s,1,Set(GOSUB_RESULT=ABORT)
++ same => n,Set(AGISIGHUP=yes)
++ same => n,Set(AGIEXITONHANGUP=no)
++ same => n,Set(QDC_PA_READY=0)
++ same => n,AGI(/opt/qdc16k-preaudio-manual/agi-wrapper,wait,${ARG1})
++ same => n,GotoIf($["${QDC_PA_READY}" != "1"]?done)
++ same => n,Set(GOSUB_RESULT=)
++ same => n(done),Return()
++
++[qdc16k-pa-cancel]
++exten => s,1,Set(QDC_PA_CLEAN=0)
++ same => n,AGI(/opt/qdc16k-preaudio-manual/agi-wrapper,cancel,${ARG1})
++ same => n,NoOp(QDC16K cleanup=${QDC_PA_CLEAN})
++ same => n,Return()

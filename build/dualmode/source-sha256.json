@@ -1,0 +1,8 @@
+{
+  "helpers/preaudio/preaudio.py": "2f810a3dab4cbfdc35eb3d92e90f7db474f2c5689785dc7e5835d91959d3b690",
+  "helpers/preaudio/device.sh": "3682a8f0b4160f43778624e8551f39f8390163c92850f6661980ca64038d5f76",
+  "build/dualmode/entrypoint.sh": "c00ffc1a5f51cdbf7cdd5ee31d2972e4e1c43e74ca5b21975261932a2182383d",
+  "build/dualmode/qdc507-dualmode-image-v2.py": "5ede175cd6786e7fbdcc8ef3e6a594bad7a93719c674bba35a88a46a3aafb613",
+  "build/dualmode/qdc507-mode-upgrade-v1.py": "99446730533cd98682200e61bfbbce4dd836049302ca04146420d97caedea642",
+  "build/dualmode/mainline-integration.patch": "4cc18030ce531a6e12342d0732724c7343aacf85c6ea9b5a7b54e9f1ba401c75"
+}

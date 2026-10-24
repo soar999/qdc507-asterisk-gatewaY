@@ -1,0 +1,30 @@
+--- a/src/monitor_thread.c
++++ b/src/monitor_thread.c
+@@ -113,13 +113,26 @@
+         return;
+     }
+ 
++    /* Recheck the current head: a queued callback may outlive its command.
++     * Compare the absolute timeval, not rounded milliseconds (1us is future). */
++    if (pvt->initialized && !strncmp(pvt->manufacturer, "Baiwang", 7)) {
++        const struct timeval now = ast_tvnow();
++        if (ecmd->timeout.tv_sec > now.tv_sec ||
++            (ecmd->timeout.tv_sec == now.tv_sec && ecmd->timeout.tv_usec > now.tv_usec)) {
++            return;
++        }
++    }
++
++    /* at_response may remove and free the entire task, including ecmd.
++     * Snapshot this command's policy for ALL devices before that call. */
++    const unsigned ignore_timeout = ecmd->flags & ATQ_CMD_FLAG_IGNORE;
+     if (at_response(pvt, &pvt->empty_str, RES_TIMEOUT)) {
+         ast_log(LOG_ERROR, "[%s] Fail to handle response\n", PVT_ID(pvt));
+         pvt->terminate_monitor = 1;
+         return;
+     }
+ 
+-    if (ecmd->flags & ATQ_CMD_FLAG_IGNORE) {
++    if (ignore_timeout) {
+         return;
+     }
+ 

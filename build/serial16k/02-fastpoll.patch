@@ -1,0 +1,74 @@
+--- a/src/monitor_thread.c
++++ b/src/monitor_thread.c
+@@ -73,6 +73,25 @@
+ static void restart_monitor(struct pvt* pvt) { pvt->terminate_monitor = 1; }
+ 
+ static int restart_monitor_taskproc(void* tpdata) { return PVT_TASKPROC_TRYLOCK_AND_EXECUTE(tpdata, restart_monitor); }
++
++/* Called only with pvt->lock held; never retain a cpvt across the wait. */
++static int qdc507_poll_wait_ms(struct pvt* const pvt)
++{
++    /* Only the evidenced model gets the new fast phase; legacy polling stays. */
++    if (!pvt->initialized || pvt->is_simcom ||
++        strcmp(pvt->manufacturer, "Baiwang") || strcmp(pvt->model, "QDC507")) return 1000;
++    struct cpvt* cpvt;
++    AST_LIST_TRAVERSE(&pvt->chans, cpvt, entry) {
++        if (CPVT_DIR_OUTGOING(cpvt) &&
++            !CPVT_TEST_FLAG(cpvt, CALL_FLAG_QDC507_HANGUP_PENDING) &&
++            (cpvt->state == CALL_STATE_DIALING ||
++             cpvt->state == CALL_STATE_ALERTING)) {
++            return 500;
++        }
++    }
++    /* No reliable answer-in-progress state: incoming ringing stays slow. */
++    return 1000;
++}
+ 
+ static void qdc507_clcc_poll(struct pvt* const pvt)
+ {
+@@ -261,7 +280,8 @@
+             /*
+              * QDC507 must not fall back to the upstream 10-second
+              * wait merely because the response taskprocessor owns
+-             * pvt->lock briefly.
++             * pvt->lock briefly. Keep the conservative 1000ms fallback:
++             * never read call state unlocked or cache a stale fast phase.
+              */
+             int t = qdc507_poll_enabled ? 1000 : RESPONSE_READ_TIMEOUT;
+ 
+@@ -300,6 +320,7 @@
+                 !strncmp(pvt->manufacturer, "Baiwang", 7);
+ 
+             const int qdc507_poll = qdc507_poll_enabled;
++            const int poll_wait_ms = qdc507_poll ? qdc507_poll_wait_ms(pvt) : 1000;
+ 
+             int t;
+             int is_cmd_timeout = 1;
+@@ -328,13 +349,14 @@
+                 } else {
+                     /*
+                      * A response handled by the serializer does not wake this
+-                     * fd wait. Recheck QDC507's queue within one second instead
+-                     * of sleeping until an already completed command's deadline.
++                     * fd wait. Recheck within the phase budget instead of
++                     * sleeping until an already completed command's deadline.
++                     * Fast setup: <=500ms slice + 500ms idle, not a fixed period.
+                      * A slice expiry is not a command timeout; keep its deadline.
+                      */
+-                    const int sliced = qdc507_poll && t > 1000;
++                    const int sliced = qdc507_poll && t > poll_wait_ms;
+                     if (sliced) {
+-                        t = 1000;
++                        t = poll_wait_ms;
+                     }
+                     if (!at_wait(fd, &t)) {
+                         if (!sliced && ast_taskprocessor_push(tps, cmd_timeout_taskproc, pvt)) {
+@@ -344,7 +366,7 @@
+                     }
+                 }
+             } else {
+-                t = qdc507_poll ? 1000 : RESPONSE_READ_TIMEOUT;
++                t = qdc507_poll ? poll_wait_ms : RESPONSE_READ_TIMEOUT;
+ 
+                 if (!at_wait(fd, &t)) {
+                     if (check_taskprocessor(tps, dev)) {
