@@ -1,0 +1,21 @@
+{
+  "date": "2026-10-26",
+  "host_option_c_sha256": "2b28dfbc8d327f4c9a52d5a434d0f86831dfa3d5542969ac1547a383f0678167",
+  "host_option_ko_sha256": "395918cff6c00e82cd8fbdfd99b8b2420ac9089605f6df0cc8a80550fd6d98cc",
+  "kernel": "4.4.180+",
+  "notes": "Source checkpoint only; physical hotplug / NAS boot not tested",
+  "recovery_sha256": {
+    "qdc507-bind-if2.sh": "ebe464800f0b74b33e819deb316ff5cd103759dc7492c0ce040cd3543ff0c00e",
+    "qdc507-boot-adb.py": "258bb517af7d5de432af9e8424f68e5403c32dfa0394cc98c87abb19eda245de",
+    "qdc507-boot-prep.py": "2d1a60513dc296572670fd1398e71717d998791106d925c6a5ad9521239ee254",
+    "qdc507-coldboot-production-v2.py": "f5f885e525f177926208bbbd915d3abe583988d32f9862147a02b7a5729e618d",
+    "qdc507-device-node-sync-v1.py": "24762e16001d5e4cde46cd91c02cc619e59424b2617c946803ae486ee47febfc",
+    "qdc507-dynusb-oneclick-v2.py": "d3817c52f19e6f50d03605ee4e478c07e022b442091f0b90d64f52d6a2a4160c",
+    "qdc507-hotplug-recovery-v1.py": "4da6b80b65aa9bdb519dcc698be91bf098e23a1ec69e742aa99db4661c5c718c",
+    "qdc507-if-role-manager-v1.py": "20d4fd2bb9bb3f30b49af87b991bf7d60f56f6b75e3e42594c8eb82e1c3edbd0",
+    "qdc507-v7-d5-clock8-guard16-ab-dynusb-v1.py": "cf364634b76c0aec0fc8f0c5db5152422cfddca09336c6f1eb8a9be66f9de9df"
+  },
+  "remotehangup_module_sha256": "ca25e8e04a5ad9792282635a99e1d7152429800d6a51331ba18991e72436fa87",
+  "v4_at_response_source_sha256": "af434671de79656e218e66bd0d5564487ed2f3aaff97bbb4458d3c63b571d060",
+  "v4_reference": "qdc507-remotehangup-v3-buildctx/source/src"
+}
