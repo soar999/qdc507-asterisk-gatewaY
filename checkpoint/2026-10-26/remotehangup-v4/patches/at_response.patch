@@ -1,0 +1,18 @@
+--- a/src/at_response.c
++++ b/src/at_response.c
+@@ -187,9 +187,14 @@
+                 stale = cpvt;
+                 break;
+             }
+ 
+-            if (cpvt->state != CALL_STATE_ACTIVE && cpvt->state != CALL_STATE_ONHOLD) {
++            /* Also recognize caller cancellation before answer.
++             * Require two valid completed CLCC snapshots. */
++            if (cpvt->state != CALL_STATE_ACTIVE &&
++                cpvt->state != CALL_STATE_ONHOLD &&
++                cpvt->state != CALL_STATE_INCOMING &&
++                cpvt->state != CALL_STATE_WAITING) {
+                 CPVT_RESET_FLAG(cpvt, CALL_FLAG_QDC507_REMOTE_MISSING_ONCE);
+                 continue;
+             }
+ 

@@ -1,0 +1,40 @@
+--- a/drivers/usb/serial/option.c
++++ b/drivers/usb/serial/option.c
+@@ -565,8 +565,14 @@
+ #define RSVD(ifnum)	((BIT(ifnum) & 0xff) << 0)
+ 
+ 
+ static const struct usb_device_id option_ids[] = {
++    /* QDC507 IF0-IF4 only */
++    { USB_DEVICE_INTERFACE_NUMBER(0x2ca3, 0x4006, 0) },
++    { USB_DEVICE_INTERFACE_NUMBER(0x2ca3, 0x4006, 1) },
++    { USB_DEVICE_INTERFACE_NUMBER(0x2ca3, 0x4006, 2) },
++    { USB_DEVICE_INTERFACE_NUMBER(0x2ca3, 0x4006, 3) },
++    { USB_DEVICE_INTERFACE_NUMBER(0x2ca3, 0x4006, 4) },
+ 	{ USB_DEVICE(OPTION_VENDOR_ID, OPTION_PRODUCT_COLT) },
+ 	{ USB_DEVICE(OPTION_VENDOR_ID, OPTION_PRODUCT_RICOLA) },
+ 	{ USB_DEVICE(OPTION_VENDOR_ID, OPTION_PRODUCT_RICOLA_LIGHT) },
+ 	{ USB_DEVICE(OPTION_VENDOR_ID, OPTION_PRODUCT_RICOLA_QUAD) },
+@@ -2016,8 +2022,22 @@
+ 	struct usb_device_descriptor *dev_desc = &serial->dev->descriptor;
+ 	unsigned long device_flags = id->driver_info;
+ 
+ 	/* Never bind to the CD-Rom emulation interface	*/
++
++
++    /*
++     * QDC507 2ca3:4006:
++     * IF0-IF4 are vendor serial.
++     * IF5 is ADB; IF6-IF8 are USB audio.
++     * Also reject broad dynamic new_id matches.
++     */
++    if (le16_to_cpu(serial->dev->descriptor.idVendor) == 0x2ca3 &&
++        le16_to_cpu(serial->dev->descriptor.idProduct) == 0x4006 &&
++        (serial->interface->cur_altsetting->desc.bInterfaceNumber > 4 ||
++         serial->interface->cur_altsetting->desc.bInterfaceClass != USB_CLASS_VENDOR_SPEC))
++        return -ENODEV;
++
+ 	if (iface_desc->bInterfaceClass == 0x08)
+ 		return -ENODEV;
+ 
+ 	/*
