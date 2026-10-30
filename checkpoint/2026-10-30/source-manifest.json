@@ -1,0 +1,70 @@
+{
+  "format": "qdc507-recovery-checkpoint-v1",
+  "date": "2026-10-30",
+  "repository": "soar999/qdc507-asterisk-gatewaY",
+  "base": "main",
+  "target_branch": "checkpoint/2026-10-30-recovery",
+  "source_only": true,
+  "files": [
+    {
+      "path": "README.md",
+      "bytes": 3222,
+      "sha256": "06d711dc3a0b40060c8ddfa117115639f6a7aea3abef5cb4bfb2b7400faef270"
+    },
+    {
+      "path": "recovery/qdc507-coldboot-production-v3-guard16-v2.py",
+      "bytes": 22412,
+      "sha256": "a6509d867269e401ec3c17c2fcb609189c7c8f356bdd5259225eb69eac70cbc0"
+    },
+    {
+      "path": "recovery/qdc507-coldboot-production-v3.original.py",
+      "bytes": 18809,
+      "sha256": "0c1e5e6d317cb33e1308a3fcd92378e2c6e1f22d03a6b2878e9dbe8c647e938d"
+    },
+    {
+      "path": "recovery/qdc507-coldboot-v3-guard16v2-inplace-patch-v1.py",
+      "bytes": 10087,
+      "sha256": "b37719b3739cbc3ce9b203863d8b1e80a06468f41470cbbae65040c5f4dc7c65"
+    },
+    {
+      "path": "recovery/qdc507-coldboot-v3-install.py",
+      "bytes": 2307,
+      "sha256": "3c81d5654592a88fb5423a1fb04e7b36a1ecb9ab9cff84c4a125451204a44bdf"
+    },
+    {
+      "path": "recovery/qdc507-guard16-v2-promotion-prep.py",
+      "bytes": 12658,
+      "sha256": "0957d8f1d9d25e0b1abb48fcfacfa46d293f02434b0fef36cbf61b0a1a1eace1"
+    },
+    {
+      "path": "recovery/qdc507-guard16-v2-recovery-pin-fix-v2.py",
+      "bytes": 19674,
+      "sha256": "cbf9baec32fc0bd31ef44de421cc54fc38e1519605742e52b27e1b91e9b0e06f"
+    },
+    {
+      "path": "recovery/qdc507-guard16-v2-runtime-restore-v2.py",
+      "bytes": 18812,
+      "sha256": "077056a8680329c998ed48a29a0a873a3c83b4e1de8e1f7becd55e0084afce55"
+    },
+    {
+      "path": "recovery/qdc507-preaudio-guard16-v2-allowlist-v1.py",
+      "bytes": 9210,
+      "sha256": "8995234fd475abc02994923482b9fb512f8dd66ea1f2f4f9823ba4e7a21c3815"
+    },
+    {
+      "path": "recovery/qdc507-usb-recover-v2.sh",
+      "bytes": 14580,
+      "sha256": "f819ee16242ff58ce8ab975584e184a7f1587237c7a396c9c82b93e9df41d7d5"
+    },
+    {
+      "path": "recovery/qdc507-usb-sim-swap-v2-README.txt",
+      "bytes": 2941,
+      "sha256": "ecde798ff3996b43c6df4fc8fca56ed9f3dbc63cfbbd951f4766da8fa290d1ee"
+    },
+    {
+      "path": "recovery/qdc507-usb-wrapper-install-v2.py",
+      "bytes": 5398,
+      "sha256": "cc6d4d6c67e8dcc581a037552c46ef72e5f5778857ac23ae69d5845aef9140e1"
+    }
+  ]
+}
