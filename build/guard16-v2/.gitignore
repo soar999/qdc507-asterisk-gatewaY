@@ -1,0 +1,6 @@
+# Build output and downloaded toolchain packages are not source assets.
+_local/
+cache/
+*.deb
+*.o
+__pycache__/

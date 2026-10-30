@@ -1,0 +1,113 @@
+--- a/mavo_pcm_bridge_16k_clock8_guard16.c
++++ b/mavo_pcm_bridge_16k_clock8_guard16.c
+@@ -784,13 +784,23 @@
+             if (played_real)
+                 d5_real_bytes += D5_PERIOD_BYTES;
+             d5_next_tick_ns += D5_PERIOD_NS;
+-            continue;
++            /* Always offer bounded TTY service after PCM, including overdue ticks. */
+         }
+ 
+-        /* Wait for IF1 data OR the next 8ms playback deadline, whichever is
+-         * earlier. Timed poll avoids the original unconditional 20ms sleep.
+-         * Read before playback only while the FIFO remains bounded. */
++        if (should_stop())
++            break;
++
++        /* Service at most one period / 256 read attempts per outer turn.
++         * The call budget also handles pathological one-byte fragments.
++         * Only the first poll may wait; every additional poll is nonblocking.
++         * O_NONBLOCK is required (set when opening tty_fd). Stop is checked
++         * before every poll and read; playback resumes after this finite budget. */
+         {
++          size_t service_bytes = 0;
++          unsigned service_calls;
++          for (service_calls = 0; service_calls < D5_PERIOD_BYTES &&
++               service_bytes < D5_PERIOD_BYTES && !should_stop(); ++service_calls) {
++            size_t read_limit;
+             struct pollfd pfd;
+             int timeout_ms = 8;
+             int ready;
+@@ -800,7 +810,7 @@
+                 if (now_ns == 0) {
+                     log_message("error", "D5_CLOCK8 monotonic clock failed");
+                     mark_worker_failed(context);
+-                    break;
++                    goto d5_clock8_loop_end;
+                 }
+                 if (now_ns >= d5_next_tick_ns) {
+                     timeout_ms = 0;
+@@ -810,41 +820,47 @@
+                     if (timeout_ms > 8) timeout_ms = 8;
+                 }
+             }
++            if (service_calls != 0) timeout_ms = 0;
+             pfd.fd = context->tty_fd;
+             pfd.events = POLLIN;
+             pfd.revents = 0;
+             ready = poll(&pfd, 1, timeout_ms);
++            if (should_stop())
++                goto d5_clock8_loop_end;
+             if (ready < 0) {
+-                if (errno == EINTR) continue;
++                if (errno == EINTR) break;
+                 log_message("error", "D5_CLOCK8 tty poll failed: %s",
+                             strerror(errno));
+                 mark_worker_failed(context);
+-                break;
++                goto d5_clock8_loop_end;
+             }
+             if (ready == 0) {
+                 ++diag_empty_reads;
+-                continue;
++                break;
+             }
+             if (pfd.revents & (POLLERR | POLLNVAL)) {
+                 log_message("error", "D5_CLOCK8 tty poll revents=0x%x",
+                             (unsigned int)pfd.revents);
+                 mark_worker_failed(context);
+-                break;
++                goto d5_clock8_loop_end;
+             }
+             if (!(pfd.revents & POLLIN)) {
+                 if (pfd.revents & POLLHUP) {
+                     log_message("error", "D5_CLOCK8 tty hangup");
+                     mark_worker_failed(context);
+-                    break;
++                    goto d5_clock8_loop_end;
+                 }
+                 ++diag_empty_reads;
+-                continue;
++                break;
+             }
+ 
++            read_limit = (size_t)buffer_length - resources.carried_bytes;
++            if (read_limit > D5_PERIOD_BYTES - service_bytes)
++                read_limit = D5_PERIOD_BYTES - service_bytes;
+             received = read(context->tty_fd,
+-                            resources.buffer + resources.carried_bytes,
+-                            (size_t)buffer_length - resources.carried_bytes);
++                            resources.buffer + resources.carried_bytes, read_limit);
+             if (received > 0) {
++                service_bytes += (size_t)received;
+                 size_t total_bytes = resources.carried_bytes + (size_t)received;
+                 size_t pcm_bytes = total_bytes & ~(size_t)1U;
+                 unsigned char trailing_byte = 0U;
+@@ -886,13 +902,14 @@
+                 ++diag_empty_reads;
+                 /* Avoid a CPU spin if this tty reports POLLIN at EOF. */
+                 usleep(1000U);
+-                continue;
++                break;
+             }
+-            if (received < 0 && errno == EINTR) continue;
++            if (received < 0 && errno == EINTR) break;
+             log_message("error", "D5_CLOCK8 tty read failed: %s",
+                         strerror(errno));
+             mark_worker_failed(context);
+-            break;
++            goto d5_clock8_loop_end;
++          }
+         }
+     }
+ d5_clock8_loop_end:

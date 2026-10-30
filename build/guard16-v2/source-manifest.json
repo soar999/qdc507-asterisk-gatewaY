@@ -1,0 +1,86 @@
+{
+  "format": "qdc507-guard16-v2-public-build-snapshot-v1",
+  "date": "2026-10-30",
+  "source_revision": "0443dfdaf8aec086fd76ba2ee9152fd908114524",
+  "upstream_repository": "moluncn/mavo",
+  "expected_guard16_v1_binary_sha256": "7375b61dc6e8661d02ef17f98097ccae3598782c466b06a50c90ff5454515e71",
+  "expected_guard16_v2_binary_sha256": "0e9272cdd832759c1704857d4a2c4abd0323a3af41d2529f84058b4431edc913",
+  "license_note": "Upstream MaVo bridge MIT; retained in LICENSE-MAVO.txt",
+  "files": [
+    {
+      "path": ".gitattributes",
+      "bytes": 124,
+      "sha256": "554bbb7e89e6c5385c948c9befd3e256751b52422de0b9b5c18784b0b4a3de27"
+    },
+    {
+      "path": ".gitignore",
+      "bytes": 110,
+      "sha256": "403a3d882c222251cb68c338d113a82f2cf2ca415a2e9995e366e3a5ac7f061b"
+    },
+    {
+      "path": "LICENSE-MAVO.txt",
+      "bytes": 1074,
+      "sha256": "70c3764904c2032c3f420a610edc47cb7408ce2bbe1a70b34490af62575b9bfb"
+    },
+    {
+      "path": "README.md",
+      "bytes": 5069,
+      "sha256": "71006169a95395ee219c610de7bcdd3e1d23620368cec5b264263a39373781d3"
+    },
+    {
+      "path": "build-cross.sh",
+      "bytes": 5427,
+      "sha256": "e90971ed2dbd54d8780b65d57f994a935a6251d62042b63a45404fdfe16097ae"
+    },
+    {
+      "path": "check_unchanged.py",
+      "bytes": 850,
+      "sha256": "5af63706d3f9da8a7141454feea5ae86d5b652660a27590e9d1d98226a404ff9"
+    },
+    {
+      "path": "guard16-v2.patch",
+      "bytes": 4739,
+      "sha256": "161cdc7ee459f9400e66268c7aede2dbb6fa908b81e6ffa0ed4c4bc7b3102436"
+    },
+    {
+      "path": "mavo_pcm_bridge_16k_clock8_guard16.c",
+      "bytes": 48038,
+      "sha256": "17d1afdec5d3a152fd59e1f0b598051dda4ae4fce3ae9d002c57580ec7fc4ba8"
+    },
+    {
+      "path": "original.c",
+      "bytes": 47114,
+      "sha256": "d7540f4d2054fe2d483b0b9868a00e45a03cf89917394a7df35f6e75be0aac41"
+    },
+    {
+      "path": "reference/bridge-d5-v2.armv7",
+      "bytes": 27244,
+      "sha256": "0e9272cdd832759c1704857d4a2c4abd0323a3af41d2529f84058b4431edc913"
+    },
+    {
+      "path": "run_tests.sh",
+      "bytes": 1675,
+      "sha256": "34ea4074f7e3049f5bfba5192a21b20f7c4a6b99d41e38bc85908669bd424e9c"
+    },
+    {
+      "path": "test_d6_unchanged.c",
+      "bytes": 3492,
+      "sha256": "542f60b06486e62b2026387162bb4fe6e0c9a64722eb6e7c60fd80d196f16627"
+    },
+    {
+      "path": "test_guard16.c",
+      "bytes": 8049,
+      "sha256": "307464bc4dd7988219034d23cccdcd06d128f8f56e9fa775b44990794a95af34"
+    },
+    {
+      "path": "verify-elf.py",
+      "bytes": 988,
+      "sha256": "5a810bc932ad2dab700df3812060d87d63d18db19f17801ae4cc232ea701f19b"
+    },
+    {
+      "path": "verify-source.py",
+      "bytes": 1777,
+      "sha256": "95205594118c78f384a6b36a46b0944c6e914f47734b0de5686a9c8b3a8a6035"
+    }
+  ]
+}
