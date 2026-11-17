@@ -1,0 +1,82 @@
+#!/bin/sh
+# Archive and remove ONLY log files from CLEAN QDC507 preaudio call tokens.
+# Never removes owner, lock, token directory, pid/accepted/ready/cancel/fault/clean.
+# Run on the Synology NAS. Default: read-only preview. --apply: archive then clean.
+set -eu
+MODE=${1:---dry-run}
+case "$MODE" in --dry-run|--apply) ;; *) echo 'usage: script [--dry-run|--apply]' >&2; exit 2;; esac
+LAB=/volume2/docker/asterisk/qdc507-16k-lab
+CONTAINER=qdc507-hardware
+SERIAL=__QDC_SERIAL__
+D=/tmp/qdc16k-preaudio-manual/state
+EXPECTED=3682a8f0b4160f43778624e8551f39f8390163c92850f6661980ca64038d5f76
+[ -d "$LAB" ] || { echo LAB_MISSING >&2; exit 2; }
+ADB="/usr/local/bin/adb"
+
+# Prevent mixing a different or unknown production device generation.
+ACTUAL=$(docker exec "$CONTAINER" "$ADB" -H 127.0.0.1 -P 5037 -s "$SERIAL" shell \
+  'sha256sum /tmp/qdc16k-preaudio-manual/device-v2.sh' | tr -d '\r' | awk '{print $1}')
+[ "$ACTUAL" = "$EXPECTED" ] || { echo "DEVICE_SOURCE_HASH_MISMATCH=$ACTUAL" >&2; exit 2; }
+
+echo '===== READ-ONLY PREVIEW ====='
+docker exec "$CONTAINER" "$ADB" -H 127.0.0.1 -P 5037 -s "$SERIAL" shell '
+D=/tmp/qdc16k-preaudio-manual/state
+n=0
+for C in "$D"/tokens/*; do
+ [ -d "$C" ] && [ ! -L "$C" ] && [ -f "$C/clean" ] || continue
+ for f in d4.log d5.log supervisor.log cleanup.log; do
+  if [ -f "$C/$f" ] && [ ! -L "$C/$f" ]; then n=$((n+1)); fi
+ done
+done
+echo "ELIGIBLE_LOG_FILES=$n"
+du -sk "$D/tokens" 2>/dev/null || :
+grep -E "^(MemAvailable|Shmem|SUnreclaim):" /proc/meminfo
+' | tr -d '\r'
+
+[ "$MODE" = --apply ] || { echo 'DRY_RUN_ONLY=1'; exit 0; }
+
+# A new call might start afterward; deleting only completed tokens remains safe.
+COUNT=$(docker exec "$CONTAINER" asterisk -rx 'core show channels count')
+printf '%s\n' "$COUNT" | grep -Eq '^[[:space:]]*0 active channels[[:space:]]*$' || { echo ACTIVE_CHANNELS_ABORT >&2; exit 3; }
+printf '%s\n' "$COUNT" | grep -Eq '^[[:space:]]*0 active calls[[:space:]]*$' || { echo ACTIVE_CALLS_ABORT >&2; exit 3; }
+
+STAMP=$(date +%Y%m%d-%H%M%S)
+ARCHIVE="$LAB/qdc507-tokens-archive-$STAMP.tar"
+PART="$ARCHIVE.part"
+[ ! -e "$ARCHIVE" ] && [ ! -e "$PART" ] || { echo ARCHIVE_NAME_COLLISION >&2; exit 2; }
+# ADB exec-out returns raw tar stream. Failed ADB/tar means no deletion.
+docker exec "$CONTAINER" "$ADB" -H 127.0.0.1 -P 5037 -s "$SERIAL" \
+  exec-out "sh -c 'cd $D && tar -cf - tokens'" > "$PART"
+tar -tf "$PART" >/dev/null
+[ -s "$PART" ] || { echo ARCHIVE_EMPTY >&2; exit 2; }
+mv "$PART" "$ARCHIVE"
+echo "ARCHIVE_OK=$ARCHIVE"
+sha256sum "$ARCHIVE"
+
+# Recheck activity before cleanup and refuse any suspicious ownership state.
+COUNT=$(docker exec "$CONTAINER" asterisk -rx 'core show channels count')
+printf '%s\n' "$COUNT" | grep -Eq '^[[:space:]]*0 active channels[[:space:]]*$' || { echo CALL_STARTED_ARCHIVE_ONLY >&2; exit 3; }
+
+# Remove only fixed log basenames from already CLEAN tokens.
+docker exec "$CONTAINER" "$ADB" -H 127.0.0.1 -P 5037 -s "$SERIAL" shell '
+set -eu
+D=/tmp/qdc16k-preaudio-manual/state
+if [ -e "$D/owner" ] || [ -e "$D/lock" ]; then
+ echo NOT_IDLE_ARCHIVE_ONLY
+ exit 3
+fi
+n=0
+for C in "$D"/tokens/*; do
+ [ -d "$C" ] && [ ! -L "$C" ] && [ -f "$C/clean" ] || continue
+ for f in d4.log d5.log supervisor.log cleanup.log; do
+  if [ -f "$C/$f" ] && [ ! -L "$C/$f" ]; then
+   rm -- "$C/$f"
+   n=$((n+1))
+  fi
+ done
+done
+echo "REMOVED_LOG_FILES=$n"
+du -sk "$D/tokens"
+grep -E "^(MemAvailable|Shmem|SUnreclaim):" /proc/meminfo
+' | tr -d '\r'
+echo 'CLEANUP_COMPLETE_WITH_ARCHIVE=1'
