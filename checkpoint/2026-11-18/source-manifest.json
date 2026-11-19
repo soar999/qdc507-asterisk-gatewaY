@@ -1,0 +1,108 @@
+{
+  "format": "qdc507-source-checkpoint-v2",
+  "date": "2026-11-18",
+  "upstream_repo": "soar999/qdc507-asterisk-gatewaY",
+  "driver_v2_source_included": true,
+  "status": "PUBLIC_SANITIZED_REVIEW_ONLY_NOT_DEPLOYABLE",
+  "files": [
+    {
+      "path": "RELEASE_NOTES.md",
+      "bytes": 2330,
+      "sha256": "b730993ad8ac2d98ea8dcbfc59e96657451782e093f2d31e9c05f11a9589fdaf"
+    },
+    {
+      "path": "driver-v2/src/chan_quectel.c",
+      "bytes": 49242,
+      "sha256": "96a2bfbc3d964fdbefbd67254d95a5dc6fad37e4d37457b947cb01c2506dcb87"
+    },
+    {
+      "path": "driver-v2/src/cpvt.c",
+      "bytes": 14109,
+      "sha256": "6489615edc7f59f73ed8dde963636a3e99e03dae6869eb18ec23603a6c330e10"
+    },
+    {
+      "path": "driver-v2/src/monitor_thread.c",
+      "bytes": 16938,
+      "sha256": "266c95bd63c87c8ed80fcdb1830acec8152b5d67bab1dda9adc26873d7ac6c93"
+    },
+    {
+      "path": "recovery/README-v221-coldboot-entry.txt",
+      "bytes": 1300,
+      "sha256": "acb707d2b254e2c4fd26c5414c320827bcba4a34edcc1ac85a1b7a1fd3203982"
+    },
+    {
+      "path": "recovery/qdc507-adb-watch-alert-memoryfix-v2.py",
+      "bytes": 7905,
+      "sha256": "c91431476e1fee5d897ab222befe4075654b37293a1af5d2aa8eda1df9eee28a"
+    },
+    {
+      "path": "recovery/qdc507-coldboot-memoryfix-v22.py",
+      "bytes": 22461,
+      "sha256": "35050d08aef00751bc1419e74f73520538f3a5a49210b0a3ce2bb69fdab8ce01"
+    },
+    {
+      "path": "recovery/qdc507-coldboot-memoryfix-v221.py",
+      "bytes": 22497,
+      "sha256": "87f8e033b95a09e13f2a701a18ce6c66931dce342c028b1639da10f20f5afc55"
+    },
+    {
+      "path": "recovery/qdc507-coldboot-startup-v221.py",
+      "bytes": 5522,
+      "sha256": "e7928b2f89db425bd74036f9bbe8910d963f00f8c0392eeed9b8928298b9d703"
+    },
+    {
+      "path": "recovery/qdc507-device-node-sync-memoryfix-v22.py",
+      "bytes": 7236,
+      "sha256": "d5d7e509686645146568029fd608005b8bfbb04cf3249c0fa097201e3d021e9f"
+    },
+    {
+      "path": "recovery/qdc507-dynusb-oneclick-memoryfix-v22.py",
+      "bytes": 24404,
+      "sha256": "68ef9ef26f84e91d012a32bbe4a23df3674a121a1e835189c6f145b2a4712185"
+    },
+    {
+      "path": "recovery/qdc507-hotplug-recovery-memoryfix-v22.py",
+      "bytes": 8199,
+      "sha256": "3636553d57ed767fb88554ad68b1edf2e8bc67c865c323ddab75e0b58db2ad06"
+    },
+    {
+      "path": "recovery/qdc507-usb-recover-memoryfix-v22.sh",
+      "bytes": 15263,
+      "sha256": "7b84011d87122f01012a027f438a01a27ccbde42578a3c000a2e196eea1737fe"
+    },
+    {
+      "path": "reference/qdc507-inbound-v42-recovery-audit-v1.py",
+      "bytes": 10548,
+      "sha256": "9d3fecd1670aeba893f65bbce860b23b9fcc8d76a87a446929e73206083e74e4"
+    },
+    {
+      "path": "reference/qdc507-memoryfix-v2-cutover.sh",
+      "bytes": 8929,
+      "sha256": "a5e8b7762db9c27d41f6dc526858035672075ecbe35d7a69d93b4b4d2d9bc5e8"
+    },
+    {
+      "path": "reference/qdc507-patch-audit-v3.sh",
+      "bytes": 18702,
+      "sha256": "762694ca7097136c6d570e1913054ddb91e0e4c9ac91577d71ac6a5a8c6b333d"
+    },
+    {
+      "path": "reference/qdc507-v4-memoryfix-20261118.patch",
+      "bytes": 1417,
+      "sha256": "02223bbf86c1b37ee4070b6dc84cf34a3fb2add8004660ff6bea781131addf56"
+    },
+    {
+      "path": "reference/qdc507-v4-memoryfix-stage-v1.py",
+      "bytes": 9516,
+      "sha256": "0a495a325d4b1074a5260f1158d8050048ef391e752a86f85163251413406885"
+    },
+    {
+      "path": "sim7600ce/Dockerfile.sim7600ce-upstream",
+      "bytes": 2273,
+      "sha256": "878cfae14b4c2155523b594148eed49b2201d5b39f50ea08472db232c80103a4"
+    }
+  ],
+  "public_sanitized_copy": true,
+  "sanitized_paths": [
+    "recovery/qdc507-adb-watch-alert-memoryfix-v2.py"
+  ]
+}

@@ -1,0 +1,35 @@
+--- a/src/monitor_thread.c
++++ b/src/monitor_thread.c
+@@ -240,7 +240,9 @@
+     RAII_VAR(void* const, buf, ast_calloc(1, RINGBUFFER_SIZE), ast_free);
+     rb_init(&rb, buf, RINGBUFFER_SIZE);
+ 
+-    RAII_VAR(struct ast_str* const, result, ast_str_create(RINGBUFFER_SIZE), ast_free);
++    /* at_combine_iov() may copy all RINGBUFFER_SIZE bytes and
++     * ast_str_truncate() writes one trailing NUL byte. */
++    RAII_VAR(struct ast_str* const, result, ast_str_create(RINGBUFFER_SIZE + 1u), ast_free);
+ 
+     ast_mutex_lock(&pvt->lock);
+     RAII_VAR(char* const, dev, ast_strdup(PVT_ID(pvt)), ast_free);
+--- a/src/cpvt.c
++++ b/src/cpvt.c
+@@ -126,13 +126,16 @@
+     ast_debug(3, "[%s] Destroy cpvt - idx:%d dir:%d state:%s flags:%d channel:%s\n", PVT_ID(pvt), cpvt->call_idx, CPVT_DIRECTION(cpvt),
+               call_state2str(cpvt->state), cpvt->flags, cpvt->channel ? "attached" : "detached");
+ 
++    /* Drop the live channel count before deciding whether this was the
++     * final channel.  The old pre-decrement check could never be true for
++     * a cpvt still in pvt->chans, leaking silence_buf across calls. */
++    decrease_chan_counters(cpvt, pvt);
++    relink_to_sys_chan(cpvt, pvt);
++
+     if (PVT_NO_CHANS(pvt)) {
+         pvt_on_remove_last_channel(pvt);
+         pvt_try_restate(pvt);
+     }
+-
+-    decrease_chan_counters(cpvt, pvt);
+-    relink_to_sys_chan(cpvt, pvt);
+ 
+     ast_free(cpvt->buffer);
+ 
