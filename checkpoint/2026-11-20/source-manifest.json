@@ -1,0 +1,40 @@
+{
+  "format": "qdc507-public-source-checkpoint-v1",
+  "date": "2026-11-20",
+  "status": "SANITIZED_REVIEW_NOT_DEPLOYABLE",
+  "origin_repo": "soar999/qdc507-asterisk-gatewaY",
+  "historical_checkpoint": "checkpoint/2026-11-18",
+  "source": {
+    "recovery/qdc507-usb-recover-memoryfix-v22.sh": {
+      "nas_original_sha256": "51702ae8f9acd338604795dfc93d9dde22fb9636633de275764ad6258067a2d7",
+      "published_sha256": "8ecf790ccec70422ed54430e66628d0120fb999896404de408e1ff63a1b7f28c",
+      "published_bytes": 18150,
+      "sanitized": true
+    },
+    "recovery/qdc507-usb-recover.sh.example": {
+      "nas_original_sha256": "fb4025303fa51e8a3cac03039ab516c22f8cba5ba0bdcf902910d9f481e6d6d4",
+      "published_sha256": "fb4025303fa51e8a3cac03039ab516c22f8cba5ba0bdcf902910d9f481e6d6d4",
+      "published_bytes": 468,
+      "sanitized": false
+    },
+    "audit/qdc507-memoryfix-v22-audit.py": {
+      "nas_original_sha256": "fac707fda70b67ec9a769a30edf54836b253f45be7359a5b8ab7f9b9bb9e34fb",
+      "published_sha256": "fac707fda70b67ec9a769a30edf54836b253f45be7359a5b8ab7f9b9bb9e34fb",
+      "published_bytes": 8093,
+      "sanitized": false
+    },
+    "audit/qdc507-patch-audit-v3.sh": {
+      "nas_original_sha256": "e635562938f4c35b6f04fb044ee4b9038009e73836d3328bb1ad32e95291b9ff",
+      "published_sha256": "e635562938f4c35b6f04fb044ee4b9038009e73836d3328bb1ad32e95291b9ff",
+      "published_bytes": 1480,
+      "sanitized": false
+    }
+  },
+  "tests": {
+    "nas_audit_check": "PASS_user_supplied_output",
+    "v43_voice_component_hashes": "PASS_user_supplied_output",
+    "guard16_sync_synthetic_test": "PASS",
+    "guard16_sync_new_physical_hotplug": "NOT_TESTED",
+    "coldboot_after_modifications": "NOT_TESTED"
+  }
+}
