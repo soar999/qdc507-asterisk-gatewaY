@@ -1,0 +1,535 @@
+#!/bin/sh
+# QDC507 USB unplug / SIM swap / replug -- production entrypoint revision 2.
+# Existing pinned OneClick and Guard16 helpers are preserved. The retired coordinator is not invoked.
+# --check: read-only; --recover: exactly one guarded attempt. Never silently recover.
+set -eu
+[ "$#" -le 1 ] || { echo 'USB_SIM_SWAP_INVALID_ARGUMENT_COUNT' >&2; exit 2; }
+exec /usr/bin/python3.8 -I -B - "${1:---check}" <<'PY'
+import fcntl
+import hashlib
+import http.client
+import json
+import os
+from pathlib import Path
+import re
+import socket
+import stat
+import subprocess
+import sys
+import time
+
+LAB = Path('/volume2/docker/asterisk/qdc507-16k-lab')
+ONE = LAB / 'qdc507-dynusb-oneclick-memoryfix-v22.py'
+GUARD = LAB / 'qdc507-v7-d5-clock8-guard16-ab-dynusb-v1.py'
+V2 = LAB / 'qdc507-guard16-runtime-memoryfix-v2.py'
+BASE = LAB / 'qdc507-dynusb-memoryfix-v22-baseline.json'
+PREP = Path('/usr/local/sbin/qdc507-boot-adb.py')
+ADB = '/usr/local/libexec/qdc507/adb'
+CONTAINER = 'qdc507-hardware'
+LOCK = '/run/qdc507-usb-sim-swap-v2.lock'
+# Historical lock name is retained because the installed V221 coldboot takes it too.
+SHARED_LOCK = '/run/qdc507-hotplug-coordinator.lock'
+PENDING = (
+    'qdc507-dynusb-oneclick-pending-v1.json',
+    'qdc507-dynusb-mode-switch-pending.json',
+    'qdc507-usb-recovery-v4-pending.json',
+    'qdc507-dynusb-cutover-pending-v1.json',
+)
+PINS = {
+    ONE: '68ef9ef26f84e91d012a32bbe4a23df3674a121a1e835189c6f145b2a4712185',
+    GUARD: '9e9398a77e39d711b0009dbc5938a18c1f9387925f3c6541ae215331d9a9b730',
+    V2: 'f7f076f9944c0ef85020785b1b308c98597fd55cb1035ab177447bc239bd6b12',
+}
+PREAUDIO_SHA = '1332d6fcf5a4b3f4f7a70180e8632992e30325256b415a4f8fc6417cf7bc0665'
+CONTAINER_ID = '<REDACTED_ID>'
+IMAGE_ID = '<REDACTED_ID>'
+PYTHON = '/usr/bin/python3.8'
+
+class Halt(Exception): pass
+
+def need(ok, msg):
+    if not ok:
+        raise Halt(msg)
+
+def emit(s):
+    print(s, flush=True)
+
+# V22_DOCKER_API_COMPAT_DSM722_V1
+def docker_api_cli(argv, timeout):
+    class _UnixHTTP(http.client.HTTPConnection):
+        def __init__(self):
+            super().__init__('localhost', timeout=timeout)
+        def connect(self):
+            self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            self.sock.settimeout(timeout)
+            self.sock.connect('/var/run/docker.sock')
+
+    def api(method, uri, payload=None):
+        c = _UnixHTTP()
+        try:
+            body = None if payload is None else json.dumps(payload).encode('utf-8')
+            headers = {'Content-Type':'application/json'} if body is not None else {}
+            c.request(method, '/v1.43' + uri, body=body, headers=headers)
+            r = c.getresponse()
+            code = r.status
+            raw = r.read(2097153)
+            need(len(raw) <= 2097152, 'DOCKER_API_RESPONSE_TOO_LARGE')
+            need(code in (200, 201), 'DOCKER_API_HTTP_' + str(code) + '_' + uri[:50])
+            return raw
+        finally:
+            c.close()
+
+    need(argv[0] == 'docker' and len(argv) >= 3, 'DOCKER_CLI_ARGS_INVALID')
+    if argv[1] == 'inspect':
+        need(len(argv) == 3 and argv[2] == CONTAINER, 'DOCKER_INSPECT_TARGET_INVALID')
+        data = json.loads(api('GET', '/containers/' + CONTAINER + '/json'))
+        return subprocess.CompletedProcess(argv, 0, json.dumps([data]), '')
+
+    need(argv[1] == 'exec', 'DOCKER_API_UNSUPPORTED_COMMAND')
+    i = 2
+    user = ''
+    if argv[i:i+2] == ['-u', '0']:
+        user = '0'
+        i += 2
+    need(i < len(argv) and argv[i] == CONTAINER and len(argv) > i + 1,
+         'DOCKER_EXEC_TARGET_OR_COMMAND_INVALID')
+    spec = dict(AttachStdout=True, AttachStderr=True, Tty=False,
+                Cmd=argv[i+1:])
+    if user:
+        spec['User'] = user
+    created = json.loads(api('POST', '/containers/' + CONTAINER + '/exec', spec))
+    eid = created.get('Id', '')
+    need(re.fullmatch(r'[0-9a-f]{64}', eid), 'DOCKER_EXEC_ID_INVALID')
+    raw = api('POST', '/exec/' + eid + '/start', dict(Detach=False, Tty=False))
+    outs = {1: bytearray(), 2: bytearray()}
+    cursor = 0
+    while cursor < len(raw):
+        need(len(raw) - cursor >= 8 and raw[cursor+1:cursor+4] == b'\x00'*3,
+             'DOCKER_EXEC_STREAM_HEADER_INVALID')
+        channel = raw[cursor]
+        length = int.from_bytes(raw[cursor+4:cursor+8], 'big')
+        cursor += 8
+        need(channel in outs and length <= len(raw) - cursor,
+             'DOCKER_EXEC_STREAM_BODY_INVALID')
+        outs[channel].extend(raw[cursor:cursor+length])
+        cursor += length
+    detail = json.loads(api('GET', '/exec/' + eid + '/json'))
+    rc = detail.get('ExitCode')
+    need(isinstance(rc, int) and not detail.get('Running'),
+         'DOCKER_EXEC_EXIT_STATE_UNKNOWN')
+    return subprocess.CompletedProcess(
+        argv, rc, outs[1].decode('utf-8','replace'),
+        outs[2].decode('utf-8','replace'))
+
+def command(argv, timeout=30, allow_fail=False, passthrough=False):
+    if argv and argv[0] == 'docker':
+        p = docker_api_cli(argv, timeout)
+        if passthrough:
+            sys.stdout.write(p.stdout)
+            sys.stderr.write(p.stderr)
+        if not allow_fail:
+            err = '' if passthrough else (p.stderr or p.stdout)[-220:]
+            need(p.returncode == 0, 'COMMAND_FAILED_docker_' + err)
+        return p
+    try:
+        kwargs = dict(stdin=subprocess.DEVNULL, timeout=timeout)
+        if passthrough:
+            p = subprocess.run(list(map(str, argv)), **kwargs)
+        else:
+            p = subprocess.run(list(map(str, argv)), stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE, universal_newlines=True, **kwargs)
+    except subprocess.TimeoutExpired:
+        raise Halt('COMMAND_TIMED_OUT_NO_AUTOMATIC_RETRY_' + str(argv[0]))
+    except OSError as e:
+        raise Halt('COMMAND_UNAVAILABLE_' + str(argv[0]) + '_' + type(e).__name__)
+    if not allow_fail:
+        err = '' if passthrough else (p.stderr or p.stdout)[-220:]
+        need(p.returncode == 0, 'COMMAND_FAILED_' + str(argv[0]) + '_' + err)
+    return p
+
+def trusted_bytes(path, low=1, high=200000, private=False):
+    st = path.lstat()
+    need(stat.S_ISREG(st.st_mode) and st.st_uid == 0 and st.st_nlink == 1 and
+         not (stat.S_IMODE(st.st_mode) & (0o077 if private else 0o022)) and
+         low <= st.st_size <= high, 'UNTRUSTED_FILE_' + path.name)
+    return path.read_bytes()
+
+def digest(data):
+    return hashlib.sha256(data).hexdigest()
+
+def baseline():
+    need(os.geteuid() == 0, 'ROOT_REQUIRED')
+    need(os.uname().release == '4.4.302+', 'NAS_KERNEL_VERSION_CHANGED')
+    need(LAB.is_dir() and not LAB.is_symlink(), 'LAB_PATH_NOT_TRUSTED')
+    for path, expected in PINS.items():
+        need(digest(trusted_bytes(path, 1000, 100000)) == expected,
+             'RECOVERY_SCRIPT_SHA_CHANGED_' + path.name)
+    b = json.loads(trusted_bytes(BASE, 100, 100000, private=True))
+    need(b.get('format') == 'qdc507-dynusb-oneclick-v1' and b.get('mode') == '16k' and
+         b.get('container_id') == CONTAINER_ID and b.get('image_id') == IMAGE_ID,
+         'USB_BASELINE_CONTAINER_OR_MODE_CHANGED')
+    need(b.get('scripts',{}).get(ONE.name) == PINS[ONE] and
+         b.get('scripts',{}).get(GUARD.name) == PINS[GUARD],
+         'RECOVERY_BASELINE_SCRIPT_PINS_CHANGED')
+    need(re.fullmatch(r'[A-Za-z0-9._:-]{4,120}', str(b.get('serial',''))),
+         'USB_BASELINE_SERIAL_INVALID')
+    need(b.get('host_boot_id') == Path('/proc/sys/kernel/random/boot_id').read_text().strip(),
+         'NAS_BOOT_CHANGED_USE_COLDBOOT_NOT_USB_RECOVERY')
+    for name in PENDING:
+        need(not os.path.lexists(str(LAB / name)), 'EXISTING_RECOVERY_PENDING_REVIEW_' + name)
+    return b
+
+def usb_generation(serial):
+    found = []
+    for p in Path('/sys/bus/usb/devices').iterdir():
+        try:
+            if (p/'idVendor').read_text().strip().lower() != '2ca3' or \
+               (p/'idProduct').read_text().strip().lower() != '4006':
+                continue
+            found.append([p.name, (p/'busnum').read_text().strip(),
+                          (p/'devnum').read_text().strip(), (p/'serial').read_text().strip()])
+        except OSError:
+            continue
+    need(len(found) == 1, 'EXPECTED_EXACTLY_ONE_QDC507_USB_DEVICE')
+    need(found[0][3].lower() == serial.lower(), 'QDC507_USB_SERIAL_CHANGED')
+    return found[0]
+
+def container():
+    data = json.loads(command(['docker', 'inspect', CONTAINER], timeout=20).stdout)
+    need(len(data) == 1 and data[0].get('Id') == CONTAINER_ID and
+         data[0].get('Image') == IMAGE_ID and
+         data[0].get('State', {}).get('Running') is True,
+         'PRODUCTION_CONTAINER_ID_IMAGE_OR_RUNNING_STATE_INVALID')
+    return data[0]
+
+def calls_idle():
+    text = command(['docker','exec',CONTAINER,'asterisk','-rx',
+                    'core show channels count'], timeout=15).stdout
+    need(re.search(r'^\s*0 active channels\s*$', text, re.M) and
+         re.search(r'^\s*0 active calls\s*$', text, re.M),
+         'ACTIVE_OR_UNKNOWN_VOICE_CALLS')
+    lines = command(['docker','exec',CONTAINER,'asterisk','-rx',
+                     'core show channels concise'], timeout=15).stdout
+    for line in lines.splitlines():
+        line = line.strip()
+        if line and line.split('!',1)[0] != 'Message/ast_msg_queue' and not re.fullmatch(
+            r'\d+\s+(?:active\s+channels?|active\s+calls?|calls?\s+processed)\.?',
+            line, re.I):
+            raise Halt('UNEXPECTED_ACTIVE_CHANNEL')
+
+def modem_ready():
+    out = command(['docker','exec',CONTAINER,'asterisk','-rx',
+                   'quectel show device state quectel0'],timeout=18).stdout
+    required = (('State','Free'),('Voice','Yes'),('SMS','Yes'),
+                ('Calls/Channels','0'))
+    values = all(re.search(r'^\s*' + re.escape(k) + r'\s*:\s*' +
+                           re.escape(v) + r'\s*$', out, re.M)
+                 for k,v in required)
+    # LTE registration can be home or valid roaming, but never unknown/denied.
+    registered = re.search(
+        r'^\s*LTE Registration Status\s*:\s*Registered, (?:home network|roaming)\s*$',
+        out, re.M) is not None
+    return values and registered
+
+def adb_server_running():
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(2)
+    try:
+        return s.connect_ex(('127.0.0.1',5037)) == 0
+    finally:
+        s.close()
+
+def adb_list():
+    if not adb_server_running():
+        return None
+    p = command([ADB,'-H','127.0.0.1','-P','5037','devices','-l'],
+                timeout=17,allow_fail=True)
+    need(p.returncode == 0, 'ADB_DEVICE_LIST_COMMAND_FAILED_REFUSE_BLIND_RESTART')
+    need('List of devices attached' in p.stdout,
+         'ADB_DEVICE_LIST_RESPONSE_UNRECOGNIZED')
+    devices = []
+    for line in p.stdout.replace('\r','').splitlines():
+        words = line.split()
+        if len(words) >= 2 and words[1] in ('device','offline','unauthorized'):
+            devices.append((words[0],words[1]))
+    return devices
+
+def adb_online(serial):
+    devices = adb_list()
+    if devices is None:
+        return False
+    # Never reset ADB service if some OTHER device is connected to it.
+    need(all(ident.lower() == serial.lower() for ident,_ in devices),
+         'OTHER_ADB_DEVICE_PRESENT_REFUSE_RESTART')
+    need(len(devices) <= 1, 'ADB_DEVICE_LIST_AMBIGUOUS')
+    if devices != [(serial,'device')]:
+        return False
+    p = command([ADB,'-H','127.0.0.1','-P','5037','-s',serial,'shell','id -u'],
+                timeout=17, allow_fail=True)
+    return p.returncode == 0 and p.stdout.replace('\r','').strip() == '0'
+
+def sms_idle():
+    timer = command(['systemctl','is-active','qdc507-sms-tick.timer'],
+                    timeout=12,allow_fail=True).stdout.strip()
+    need(timer == 'active', 'SMS_TIMER_NOT_ACTIVE_BEFORE_RECOVERY_' + timer)
+
+    deadline = time.monotonic() + 40
+
+    while True:
+        worker = command(
+            ['systemctl','is-active','qdc507-sms-tick.service'],
+            timeout=12,allow_fail=True
+        ).stdout.strip()
+
+        if worker == 'inactive':
+            timer = command(
+                ['systemctl','is-active','qdc507-sms-tick.timer'],
+                timeout=12,allow_fail=True
+            ).stdout.strip()
+            need(timer == 'active',
+                 'SMS_TIMER_CHANGED_DURING_IDLE_WAIT_' + timer)
+            return
+
+        need(worker in ('activating','active','deactivating'),
+             'SMS_WORKER_UNEXPECTED_' + worker)
+
+        if time.monotonic() >= deadline:
+            raise Halt('SMS_WORKER_NOT_IDLE_WITHIN_40S_' + worker)
+
+        time.sleep(0.25)
+
+def check():
+    b = baseline()
+    c = container()
+    if c['State'].get('Health'):
+        need(c['State']['Health'].get('Status') == 'healthy',
+             'PRODUCTION_CONTAINER_NOT_HEALTHY')
+    calls_idle()
+    source = command(['docker','exec',CONTAINER,'sha256sum',
+                      '/opt/qdc16k-preaudio-manual/prepare.py'],timeout=15).stdout
+    need(source.split()[0] == PREAUDIO_SHA, 'PREAUDIO_V1_V2_ALLOWLIST_MISSING')
+    shot = usb_generation(b['serial'])
+    emit('USB_GENERATION_CURRENT='+':'.join(shot[:3]))
+    emit('USB_GENERATION_CHANGED='+str(int(shot != b['usb_generation'])))
+    online = adb_online(b['serial'])
+    emit('ADB_STATUS='+('online' if online else 'needs_single_restart'))
+    emit('SIM_REGISTERED='+str(int(modem_ready())))
+    emit('USB_SWAP_SOURCE_AND_PRODUCTION_PINS_OK=1')
+    emit('USB_SWAP_READ_ONLY_CHECK_OK=1')
+    return b,shot
+
+def wait_sim_register(shot, serial):
+    # Never make a pending journal just to discover an incorrectly inserted SIM.
+    end = time.monotonic() + 75
+    while time.monotonic() < end:
+        need(usb_generation(serial) == shot, 'USB_CHANGED_DURING_SIM_CHECK')
+        if modem_ready():
+            emit('SIM_READY_BEFORE_TRANSACTION=1')
+            return
+        time.sleep(3)
+    raise Halt('SIM_NOT_REGISTERED_NO_RECOVERY_TRANSACTION_STARTED_CHECK_SIM_SEATING_AND_PIN')
+
+# SAFE_AUTO_SYNC_GUARD_BASELINE_AFTER_ONECLICK_V22
+def sync_guard16_v2_generation(latest, shot):
+    old_path = LAB / 'qdc507-dynusb-memoryfix-v2-baseline.json'
+    raw = trusted_bytes(old_path, 100, 100000, private=True)
+    old = json.loads(raw)
+
+    for key in ('format','mode','serial','host_boot_id',
+                'container_id','image_id'):
+        need(old.get(key) == latest.get(key),
+             'GUARD16_BASELINE_CONTEXT_MISMATCH_' + key)
+
+    need(latest.get('usb_generation') == shot,
+         'V22_BASELINE_NOT_SEALED')
+    need(usb_generation(latest['serial']) == shot,
+         'USB_CHANGED_BEFORE_GUARD_SYNC')
+
+    for record in (old, latest):
+        need(record.get('scripts',{}).get(GUARD.name) ==
+             PINS[GUARD], 'GUARD16_SCRIPT_PIN_MISMATCH')
+
+    calls_idle()
+
+    for name in PENDING:
+        need(not os.path.lexists(str(LAB/name)),
+             'PENDING_EXISTS_BEFORE_GUARD_SYNC_' + name)
+
+    if old.get('usb_generation') == shot:
+        emit('GUARD16_BASELINE_ALREADY_CURRENT=1')
+        return
+
+    backup = LAB / (
+        'qdc507-dynusb-memoryfix-v2-before-sync-' +
+        time.strftime('%Y%m%d-%H%M%S') + '-' +
+        str(os.getpid()) + '.json'
+    )
+
+    fd = os.open(str(backup),
+                 os.O_WRONLY | os.O_CREAT | os.O_EXCL |
+                 os.O_NOFOLLOW, 0o600)
+    # QDC507_GUARD16_ACL600_V1: DSM ACL inheritance.
+    os.fchmod(fd, 0o600)
+    need(stat.S_IMODE(os.fstat(fd).st_mode) == 0o600,
+         'GUARD16_BACKUP_MODE_UNSAFE')
+    with os.fdopen(fd, 'wb') as f:
+        f.write(raw)
+        f.flush()
+        os.fsync(f.fileno())
+
+    updated = dict(old)
+    updated['usb_generation'] = shot
+    payload = (json.dumps(updated, indent=2,
+                          ensure_ascii=False) + '\n').encode()
+
+    tmp = LAB / (
+        'qdc507-guard16-baseline-sync-' +
+        str(os.getpid()) + '.tmp'
+    )
+    fd = os.open(str(tmp),
+                 os.O_WRONLY | os.O_CREAT | os.O_EXCL |
+                 os.O_NOFOLLOW, 0o600)
+    os.fchmod(fd, 0o600)
+    need(stat.S_IMODE(os.fstat(fd).st_mode) == 0o600,
+         'GUARD16_TMP_MODE_UNSAFE')
+
+    try:
+        with os.fdopen(fd, 'wb') as f:
+            f.write(payload)
+            f.flush()
+            os.fsync(f.fileno())
+
+        need(old_path.read_bytes() == raw,
+             'GUARD16_BASELINE_CHANGED_CONCURRENTLY')
+        need(usb_generation(latest['serial']) == shot,
+             'USB_CHANGED_DURING_GUARD_SYNC')
+        os.replace(str(tmp), str(old_path))
+        need(stat.S_IMODE(old_path.lstat().st_mode) == 0o600,
+             'GUARD16_BASELINE_MODE_UNSAFE')
+    finally:
+        if os.path.exists(str(tmp)):
+            os.unlink(str(tmp))
+
+    emit('GUARD16_BASELINE_SYNCED_AFTER_ONECLICK=1')
+
+
+def recover():
+    lock_fd = os.open(LOCK, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    shared_fd = None
+    try:
+        s = os.fstat(lock_fd)
+        need(stat.S_ISREG(s.st_mode) and s.st_uid == 0 and
+             not stat.S_IMODE(s.st_mode) & 0o077, 'UNTRUSTED_USB_SWAP_LOCK')
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise Halt('ANOTHER_USB_SWAP_RECOVERY_ALREADY_RUNNING')
+        # Preserve mutual exclusion with existing V221 coldboot without calling
+        # the retired hotplug coordinator's DSM7.1-specific validation.
+        shared_fd = os.open(SHARED_LOCK, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+        shared_stat = os.fstat(shared_fd)
+        need(stat.S_ISREG(shared_stat.st_mode) and shared_stat.st_uid == 0 and
+             not (stat.S_IMODE(shared_stat.st_mode) & 0o077),
+             'UNTRUSTED_SHARED_RECOVERY_LOCK')
+        try:
+            fcntl.flock(shared_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise Halt('COLDBOOT_OR_SHARED_RECOVERY_ALREADY_RUNNING')
+        b,shot = check()
+        sms_idle()
+        time.sleep(3)
+        need(usb_generation(b['serial']) == shot, 'USB_NOT_STABLE_FOR_3_SECONDS')
+        if not adb_online(b['serial']):
+            emit('ADB_STALE_OR_OFFLINE_SINGLE_RESTART=1')
+            if adb_server_running():
+                # One bounded reset only. Never kill server with unrelated ADB devices.
+                command([ADB,'-H','127.0.0.1','-P','5037','kill-server'],
+                        timeout=20,allow_fail=True)
+            p = command([PYTHON,'-I','-B',str(PREP)],timeout=38)
+            need('BOOT_ADB_EXIT=0' in p.stdout, 'ADB_BOOT_GATE_DID_NOT_SUCCEED')
+            end = time.monotonic() + 35
+            while time.monotonic() < end:
+                if adb_online(b['serial']):
+                    break
+                time.sleep(1)
+            else:
+                raise Halt('ADB_NOT_ONLINE_AFTER_SINGLE_RESTART_NO_TRANSACTION_STARTED')
+            emit('ADB_REDISCOVERED_AFTER_USB_SWAP=1')
+        else:
+            emit('ADB_ALREADY_ONLINE_NO_RESTART=1')
+        need(usb_generation(b['serial']) == shot, 'USB_CHANGED_AFTER_ADB_REDISCOVERY')
+        # The SIM may be inserted incorrectly; stop BEFORE oneclick stops SMS.
+        wait_sim_register(shot,b['serial'])
+        calls_idle()
+        sms_idle()
+        # Direct call, exactly one attempt. OneClick owns actual hardware recovery
+        # and seals the new USB generation only after its business checks pass.
+        emit('ONECLICK_RECOVERY_BEGIN=1')
+        p = command([PYTHON,'-I','-B',str(ONE),'--recover'],
+                    timeout=620, allow_fail=True, passthrough=True)
+        need(p.returncode == 0,
+             'ONECLICK_FAILED_PRESERVE_PENDING_NO_AUTOMATIC_RETRY')
+        emit('ONECLICK_RECOVERY_COMPLETE=1')
+        latest = json.loads(trusted_bytes(BASE,100,100000,private=True))
+        need(latest.get('usb_generation') == shot and
+             latest.get('host_boot_id') == b['host_boot_id'],
+             'ONECLICK_SUCCESS_BUT_BASELINE_NOT_SEALED')
+        for name in PENDING:
+            need(not os.path.lexists(str(LAB/name)),
+                 'PENDING_EXISTS_AFTER_ONECLICK_' + name)
+        need(usb_generation(b['serial']) == shot,
+             'USB_CHANGED_AFTER_ONECLICK')
+        sync_guard16_v2_generation(latest, shot)
+        emit('GUARD16_V2_ENSURE_BEGIN=1')
+        p = command([PYTHON,'-I','-B',str(V2),'--ensure-v2'],
+                    timeout=200,allow_fail=True,passthrough=True)
+        need(p.returncode == 0,
+             'GUARD16_V2_ENSURE_FAILED_MANUAL_CHECK_NO_AUTOMATIC_RETRY')
+        final = command([PYTHON,'-I','-B',str(V2),'--check'],timeout=100).stdout
+        need('DEVICE_CURRENT_MODE=v2' in final and
+             'READ_ONLY_RUNTIME_CHECK_OK=1' in final and
+             'DEVICE_V1_BACKUP=present' in final,
+             'GUARD16_V2_FINAL_STATE_NOT_VERIFIED')
+        need(modem_ready(), 'MODEM_NOT_READY_AT_FINAL_CHECK')
+        sms_idle()
+        need(usb_generation(b['serial']) == shot,
+             'USB_CHANGED_AT_FINAL_CHECK')
+        # V43_POST_USB_RESTAGE_V1_BEGIN: oneclick can complete without restarting Docker.
+        # Only after full original oneclick/Guard16/voice/SMS verification above.
+        emit('V43_POST_USB_RESTAGE_START=1')
+        checked = command(['docker','exec','-u','0',CONTAINER,
+                           '/usr/bin/python3','-B',
+                           '/opt/qdc16k-preaudio-manual/qdc507-v43-device-restore.py',
+                           '--boot'], timeout=110)
+        need('V43_DEVICE_READY=1' in checked.stdout,
+             'V43_USB_DEVICE_RESTAGE_NOT_VERIFIED')
+        emit('V43_POST_USB_RESTAGE_OK=1')
+        # V43_POST_USB_RESTAGE_V1_END
+        emit('USB_SIM_SWAP_GUARD16_V2_RECOVERY_COMPLETE=1')
+        emit('SAME_PRODUCTION_CONTAINER_AND_USB_BASELINE_PRESERVED=1')
+        return
+    finally:
+        if shared_fd is not None:
+            os.close(shared_fd)
+        os.close(lock_fd)
+
+def main():
+    mode = sys.argv[1:]
+    need(len(mode) == 1 and mode[0] in ('--check','--recover'),
+         'USE_--check_OR_--recover')
+    if mode[0] == '--check':
+        check()
+    else:
+        recover()
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (Halt, OSError, KeyError, ValueError, IndexError, BlockingIOError,
+            subprocess.TimeoutExpired) as e:
+        print('USB_SIM_SWAP_STOP='+type(e).__name__+':'+str(e)[:350],
+              file=sys.stderr,flush=True)
+        print('NO_AUTOMATIC_RETRY_KEEP_EXISTING_RECOVERY_JOURNAL=1',
+              file=sys.stderr,flush=True)
+        sys.exit(2)
+PY

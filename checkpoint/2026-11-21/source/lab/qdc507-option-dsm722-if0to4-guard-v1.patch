@@ -1,0 +1,26 @@
+--- a/drivers/usb/serial/option.c
++++ b/drivers/usb/serial/option.c
+@@ -2154,10 +2154,23 @@
+ 				&serial->interface->cur_altsetting->desc;
+ 	struct usb_device_descriptor *dev_desc = &serial->dev->descriptor;
+ 	unsigned long device_flags = id->driver_info;
+ 
+ 	/* Never bind to the CD-Rom emulation interface	*/
++
++	/*
++	 * QDC507 2ca3:4006:
++	 * IF0-IF4 are serial interfaces.
++	 * IF5 is ADB; IF6-IF8 are USB audio.
++	 * Reject broad new_id matches on non-serial IFs.
++	 */
++	if (le16_to_cpu(dev_desc->idVendor) == 0x2ca3 &&
++	    le16_to_cpu(dev_desc->idProduct) == 0x4006 &&
++	    (iface_desc->bInterfaceNumber > 4 ||
++	     iface_desc->bInterfaceClass != USB_CLASS_VENDOR_SPEC))
++		return -ENODEV;
++
+ 	if (iface_desc->bInterfaceClass == 0x08)
+ 		return -ENODEV;
+ 
+ 	/*
+ 	 * Don't bind reserved interfaces (like network ones) which often have

@@ -1,0 +1,27 @@
+{
+  "kernel": "4.4.302+",
+  "modules_metadata_only_no_binaries": {
+    "qdc507-dsm722-option.ko": {
+      "sha256": "306f7106352df5762d4fad66b314b32fc45b555798a5520d591723d7ef3b01dc",
+      "bytes": 168904,
+      "vermagic": "unavailable"
+    },
+    "qdc507-option-boot.ko": {
+      "sha256": "395918cff6c00e82cd8fbdfd99b8b2420ac9089605f6df0cc8a80550fd6d98cc",
+      "bytes": 612600,
+      "vermagic": "unavailable"
+    },
+    "r8152-2.5gbe.ko": {
+      "sha256": "bce3c2b243db83e5f3c109ca0b1d206fe807d5576b4839baa6e7a609baa3734f",
+      "bytes": 2463456,
+      "vermagic": "unavailable"
+    }
+  },
+  "r8152_package_status": "{\"aspect\":{\"active\":{\"status\":\"running\",\"status_code\":0,\"status_description\":\"retrieve from status script\"}},\"description\":\"Status: [0], package is started\",\"package\":\"r8152\",\"status\":\"running\"}",
+  "dsm_version": {
+    "buildnumber": "72806",
+    "smallfixnumber": "10",
+    "nano": "10",
+    "productversion": "7.2.2"
+  }
+}
