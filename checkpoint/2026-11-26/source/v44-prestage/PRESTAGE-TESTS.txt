@@ -1,0 +1,19 @@
+test_fail_not_healthy (__main__.Test.test_fail_not_healthy) ... ok
+test_heartbeat (__main__.Test.test_heartbeat) ... ok
+test_idle_exact (__main__.Test.test_idle_exact) ... ok
+test_loaded_contexts (__main__.Test.test_loaded_contexts) ... LOADED_V43_CONTEXTS=PASS
+ok
+test_no_receipt_on_interrupted_write (__main__.Test.test_no_receipt_on_interrupted_write) ... ok
+test_no_receipt_on_invalid_name (__main__.Test.test_no_receipt_on_invalid_name) ... ok
+test_private_stage (__main__.Test.test_private_stage) ... ok
+test_read_regular (__main__.Test.test_read_regular) ... ok
+test_reject_hardlink (__main__.Test.test_reject_hardlink) ... ok
+test_reject_symlink (__main__.Test.test_reject_symlink) ... ok
+test_scheduler_inventory (__main__.Test.test_scheduler_inventory) ... ok
+test_stale_heartbeat (__main__.Test.test_stale_heartbeat) ... ok
+test_unique_stage (__main__.Test.test_unique_stage) ... ok
+
+----------------------------------------------------------------------
+Ran 13 tests in 0.023s
+
+OK

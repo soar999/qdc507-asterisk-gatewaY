@@ -1,0 +1,312 @@
+{
+  "acceptance": {
+    "adb_automatic_reset_live": "PENDING",
+    "adb_reset_read_only_precheck": "PASS",
+    "continuous_call_179_seconds": "PASS",
+    "device_reboot_usb_reenumeration": "PASS",
+    "nas_coldboot": "PENDING",
+    "physical_power_disconnect": "PENDING",
+    "post_usb_recovery_call": "PASS",
+    "production_deep_audit": "PASS",
+    "production_event_voice": "PASS"
+  },
+  "date": "2026-11-26",
+  "dialplan_hashes": {
+    "v0": "a5615c79a25a671beb0fe5790d4915db50d6230c0b2e83b679fc8c5053b39958",
+    "v0-edit": "a5615c79a25a671beb0fe5790d4915db50d6230c0b2e83b679fc8c5053b39958"
+  },
+  "file_records": [
+    {
+      "archive_path": "source/lab/qdc507-adb-watch-alert-memoryfix-v2.py",
+      "original_nas_sha256": "5cd2c7cd5264cf8189846ba73a8f6aca2dcfae14e886d8e8424bb424b5f6794b",
+      "original_size": 163,
+      "public_sha256": "5cd2c7cd5264cf8189846ba73a8f6aca2dcfae14e886d8e8424bb424b5f6794b",
+      "public_size": 163,
+      "redacted": false
+    },
+    {
+      "archive_path": "source/lab/qdc507-coldboot-startup-v221.py",
+      "original_nas_sha256": "edfd4a9af3ccd1acc4d70e9296fb41da93369c920992a075991639736b899e85",
+      "original_size": 166,
+      "public_sha256": "edfd4a9af3ccd1acc4d70e9296fb41da93369c920992a075991639736b899e85",
+      "public_size": 166,
+      "redacted": false
+    },
+    {
+      "archive_path": "source/lab/qdc507-memoryfix-v22-audit.py",
+      "original_nas_sha256": "7985934e3fe087faa0e63d6b804ba1bffd443b06d3aed967f06bca50eed34c9b",
+      "original_size": 14073,
+      "public_sha256": "7985934e3fe087faa0e63d6b804ba1bffd443b06d3aed967f06bca50eed34c9b",
+      "public_size": 14073,
+      "redacted": false
+    },
+    {
+      "archive_path": "source/lab/qdc507-patch-audit-v3.sh",
+      "original_nas_sha256": "560c8d511e9ee9c544490a3ab6a4d46985746fbb8e93c0b678096cd2da686a49",
+      "original_size": 3437,
+      "public_sha256": "560c8d511e9ee9c544490a3ab6a4d46985746fbb8e93c0b678096cd2da686a49",
+      "public_size": 3437,
+      "redacted": false
+    },
+    {
+      "archive_path": "source/lab/qdc507-production-20261126-v44-event.json",
+      "original_nas_sha256": "d9ae1db9cee220457d843d5c604198beafffe384a51bc690c1b9b57ef602405c",
+      "original_size": 1735,
+      "public_sha256": "d9ae1db9cee220457d843d5c604198beafffe384a51bc690c1b9b57ef602405c",
+      "public_size": 1735,
+      "redacted": false
+    },
+    {
+      "archive_path": "source/lab/qdc507-v44-activation.json",
+      "original_nas_sha256": "58febbe8ec65087e33e3e75f6383e7c0213e0da8fbc1ce7f6e3400de1f58c51d",
+      "original_size": 1260,
+      "public_sha256": "cec544abd4eedb2748a776d3a691a1adb5a487f957e003c6f41bedb21ace8266",
+      "public_size": 1260,
+      "redacted": true
+    },
+    {
+      "archive_path": "source/lab/qdc507-v44-event-candidate.sh",
+      "original_nas_sha256": "3831ac17e6da2702d8531fd10ded5b0d540debe8aa578e1e40f3c4206afbcef7",
+      "original_size": 6805,
+      "public_sha256": "3831ac17e6da2702d8531fd10ded5b0d540debe8aa578e1e40f3c4206afbcef7",
+      "public_size": 6805,
+      "redacted": false
+    },
+    {
+      "archive_path": "source/lab/qdc507-v44-runtime.py",
+      "original_nas_sha256": "c00b3504649210a1bf3f3d11b13cb66f5c85d2f57b962b7c4ff4cdbbaae267b0",
+      "original_size": 18187,
+      "public_sha256": "f7824147339192d08cedc62f2ed58274db28848e90aab01e6d2444fe897b4ba0",
+      "public_size": 18187,
+      "redacted": true
+    },
+    {
+      "archive_path": "source/production-recovery/qdc507-usb-recover.sh",
+      "original_nas_sha256": "399dbeabf4bed2f145344c24b22e587e0e7ffe7b7e52aedaafc00719da43ce06",
+      "original_size": 475,
+      "public_sha256": "399dbeabf4bed2f145344c24b22e587e0e7ffe7b7e52aedaafc00719da43ce06",
+      "public_size": 475,
+      "redacted": false
+    },
+    {
+      "archive_path": "source/v44-coordination/adb_coordination.py",
+      "original_nas_sha256": "12e9d456dd210d19eb95f897ca16ccefc96c9b074f5432ea6d08ec3f702366f4",
+      "original_size": 5440,
+      "public_sha256": "12e9d456dd210d19eb95f897ca16ccefc96c9b074f5432ea6d08ec3f702366f4",
+      "public_size": 5440,
+      "redacted": false
+    },
+    {
+      "archive_path": "source/v44-coordination/agi-wrapper-v44",
+      "original_nas_sha256": "698675fdcad685fcc3c5b1e0d19b83d62fbdae23f6a5c5ad50d1a329fe54b364",
+      "original_size": 1080,
+      "public_sha256": "7f828f71dfc42289db7c994f28f92df8b13a2135eb3d26c570520bf7f0ac346f",
+      "public_size": 1060,
+      "redacted": true
+    },
+    {
+      "archive_path": "source/v44-coordination/device-v44-candidate.sh",
+      "original_nas_sha256": "6352805ba1461451186d52eaa0adbb945abca395c2e9ce6c5482c9c792db1ffb",
+      "original_size": 5763,
+      "public_sha256": "6352805ba1461451186d52eaa0adbb945abca395c2e9ce6c5482c9c792db1ffb",
+      "public_size": 5763,
+      "redacted": false
+    },
+    {
+      "archive_path": "source/v44-coordination/lifecycle.py",
+      "original_nas_sha256": "b65aff643318415713085c004a51427daf4e88613145d216bec9f9ecb30ae784",
+      "original_size": 6525,
+      "public_sha256": "b65aff643318415713085c004a51427daf4e88613145d216bec9f9ecb30ae784",
+      "public_size": 6525,
+      "redacted": false
+    },
+    {
+      "archive_path": "source/v44-coordination/preaudio-v44-candidate.py",
+      "original_nas_sha256": "84a35a708defd000dfee0d4ef599d858f32bbe829646e10030fb29878b1db45c",
+      "original_size": 15280,
+      "public_sha256": "84a35a708defd000dfee0d4ef599d858f32bbe829646e10030fb29878b1db45c",
+      "public_size": 15280,
+      "redacted": false
+    },
+    {
+      "archive_path": "source/v44-prestage/INTEGRATION-TESTS.txt",
+      "original_nas_sha256": "6416aecbcdf0ae6255b63c24d38ea61def918b846132642d674ea1af9dcb0cd7",
+      "original_size": 807,
+      "public_sha256": "6416aecbcdf0ae6255b63c24d38ea61def918b846132642d674ea1af9dcb0cd7",
+      "public_size": 807,
+      "redacted": false
+    },
+    {
+      "archive_path": "source/v44-prestage/PRESTAGE-TESTS.txt",
+      "original_nas_sha256": "6314b79c7159f9d5f0a849f367850c082795c7acfa1ce4ee112e7b0ea12ae3d9",
+      "original_size": 993,
+      "public_sha256": "6314b79c7159f9d5f0a849f367850c082795c7acfa1ce4ee112e7b0ea12ae3d9",
+      "public_size": 993,
+      "redacted": false
+    },
+    {
+      "archive_path": "source/v44-prestage/README.txt",
+      "original_nas_sha256": "c0e981ec9c4d91e60e4abb9fa24518f73022f9f158333aa42499936da9656de2",
+      "original_size": 1413,
+      "public_sha256": "c0e981ec9c4d91e60e4abb9fa24518f73022f9f158333aa42499936da9656de2",
+      "public_size": 1413,
+      "redacted": false
+    },
+    {
+      "archive_path": "source/v44-prestage/SHA256SUMS",
+      "original_nas_sha256": "9ee5efa50c101ea08f298519a867b9275ac608cc3d206bd8082512fe3a86a7d1",
+      "original_size": 1721,
+      "public_sha256": "9ee5efa50c101ea08f298519a867b9275ac608cc3d206bd8082512fe3a86a7d1",
+      "public_size": 1721,
+      "redacted": false
+    },
+    {
+      "archive_path": "source/v44-prestage/WRAPPER-TESTS.txt",
+      "original_nas_sha256": "f9250a4a81506d94812575b287981c513a9609cd916e5e953d938402f3ab015f",
+      "original_size": 159,
+      "public_sha256": "f9250a4a81506d94812575b287981c513a9609cd916e5e953d938402f3ab015f",
+      "public_size": 159,
+      "redacted": false
+    },
+    {
+      "archive_path": "source/v44-prestage/adb_coordination.py",
+      "original_nas_sha256": "12e9d456dd210d19eb95f897ca16ccefc96c9b074f5432ea6d08ec3f702366f4",
+      "original_size": 5440,
+      "public_sha256": "12e9d456dd210d19eb95f897ca16ccefc96c9b074f5432ea6d08ec3f702366f4",
+      "public_size": 5440,
+      "redacted": false
+    },
+    {
+      "archive_path": "source/v44-prestage/device-v44-candidate.sh",
+      "original_nas_sha256": "6352805ba1461451186d52eaa0adbb945abca395c2e9ce6c5482c9c792db1ffb",
+      "original_size": 5763,
+      "public_sha256": "6352805ba1461451186d52eaa0adbb945abca395c2e9ce6c5482c9c792db1ffb",
+      "public_size": 5763,
+      "redacted": false
+    },
+    {
+      "archive_path": "source/v44-prestage/integration-regression.py",
+      "original_nas_sha256": "5fa35912c417bcc08fa3abe8bab2c6b7afa32851c31485c2d966185909470576",
+      "original_size": 5285,
+      "public_sha256": "5fa35912c417bcc08fa3abe8bab2c6b7afa32851c31485c2d966185909470576",
+      "public_size": 5285,
+      "redacted": false
+    },
+    {
+      "archive_path": "source/v44-prestage/lifecycle.py",
+      "original_nas_sha256": "b65aff643318415713085c004a51427daf4e88613145d216bec9f9ecb30ae784",
+      "original_size": 6525,
+      "public_sha256": "b65aff643318415713085c004a51427daf4e88613145d216bec9f9ecb30ae784",
+      "public_size": 6525,
+      "redacted": false
+    },
+    {
+      "archive_path": "source/v44-prestage/nas-prestage-regression.py",
+      "original_nas_sha256": "6ad7165757a0f38d477003e232aa622584de7195f0fb4d8e88c86213886e31b1",
+      "original_size": 3867,
+      "public_sha256": "6ad7165757a0f38d477003e232aa622584de7195f0fb4d8e88c86213886e31b1",
+      "public_size": 3867,
+      "redacted": false
+    },
+    {
+      "archive_path": "source/v44-prestage/nas-prestage.py",
+      "original_nas_sha256": "e9a3663cbec0d6f1d3a9bea9f214df325bd6f6c5f4fcd943d55f956b1b745950",
+      "original_size": 7724,
+      "public_sha256": "e9a3663cbec0d6f1d3a9bea9f214df325bd6f6c5f4fcd943d55f956b1b745950",
+      "public_size": 7724,
+      "redacted": false
+    },
+    {
+      "archive_path": "source/v44-prestage/nas_recovery_adapter.py",
+      "original_nas_sha256": "2845ceca288bb607fffc04c3fc536d56d9f179217fd7655c5d389c4d70eb8ba8",
+      "original_size": 4342,
+      "public_sha256": "2845ceca288bb607fffc04c3fc536d56d9f179217fd7655c5d389c4d70eb8ba8",
+      "public_size": 4342,
+      "redacted": false
+    },
+    {
+      "archive_path": "source/v44-prestage/nas_watch_bridge.py",
+      "original_nas_sha256": "a2debf922480262e78c177e0d124607c5c1576bcdd601ca71f426c0bcd19a47d",
+      "original_size": 2759,
+      "public_sha256": "a2debf922480262e78c177e0d124607c5c1576bcdd601ca71f426c0bcd19a47d",
+      "public_size": 2759,
+      "redacted": false
+    },
+    {
+      "archive_path": "source/v44-prestage/observation.py",
+      "original_nas_sha256": "bd90b0b10835f124ab0733b80fdfbecd11715932c2af0bbeaa045d84ae64f955",
+      "original_size": 2132,
+      "public_sha256": "bd90b0b10835f124ab0733b80fdfbecd11715932c2af0bbeaa045d84ae64f955",
+      "public_size": 2132,
+      "redacted": false
+    },
+    {
+      "archive_path": "source/v44-prestage/preaudio-v44-candidate.py",
+      "original_nas_sha256": "84a35a708defd000dfee0d4ef599d858f32bbe829646e10030fb29878b1db45c",
+      "original_size": 15280,
+      "public_sha256": "84a35a708defd000dfee0d4ef599d858f32bbe829646e10030fb29878b1db45c",
+      "public_size": 15280,
+      "redacted": false
+    },
+    {
+      "archive_path": "source/v44-prestage/prepare-v44-stage.py",
+      "original_nas_sha256": "d2ca5f4fe85af2ce5a29dad8809c401fe166c699f6b1b8b1c72a27a9629c1c39",
+      "original_size": 7897,
+      "public_sha256": "d2ca5f4fe85af2ce5a29dad8809c401fe166c699f6b1b8b1c72a27a9629c1c39",
+      "public_size": 7897,
+      "redacted": false
+    },
+    {
+      "archive_path": "source/v44-prestage/release_transaction.py",
+      "original_nas_sha256": "721cfd64359814cc6529481d3d0f06c6ed68b6e306886dadd03bbf793461ad3c",
+      "original_size": 5022,
+      "public_sha256": "721cfd64359814cc6529481d3d0f06c6ed68b6e306886dadd03bbf793461ad3c",
+      "public_size": 5022,
+      "redacted": false
+    },
+    {
+      "archive_path": "source/v44-prestage/restage_v44.py",
+      "original_nas_sha256": "8093ebe7038f8a5b9a08c733f61e75312888810a8211fb7398c7cec322181509",
+      "original_size": 3610,
+      "public_sha256": "8093ebe7038f8a5b9a08c733f61e75312888810a8211fb7398c7cec322181509",
+      "public_size": 3610,
+      "redacted": false
+    },
+    {
+      "archive_path": "source/v44-prestage/stage-wrapper-regression.py",
+      "original_nas_sha256": "f9bc05322aae437f8c2f7bb1e8e492d46db2be2f792d7e090ba29517c62e1523",
+      "original_size": 1120,
+      "public_sha256": "f9bc05322aae437f8c2f7bb1e8e492d46db2be2f792d7e090ba29517c62e1523",
+      "public_size": 1120,
+      "redacted": false
+    },
+    {
+      "archive_path": "source/v44-prestage/stage_routes.py",
+      "original_nas_sha256": "e35aadf6a7c69514701d7713aba6bd5d7cb91ce0d961ab3149211e98efe2f57a",
+      "original_size": 2065,
+      "public_sha256": "e35aadf6a7c69514701d7713aba6bd5d7cb91ce0d961ab3149211e98efe2f57a",
+      "public_size": 2065,
+      "redacted": false
+    },
+    {
+      "archive_path": "source/v44-prestage/watch_adapter.py",
+      "original_nas_sha256": "0be8daf613e1b97fd9f22f87e13299d1270833fddf8c6186e32fc0e252fd9457",
+      "original_size": 2475,
+      "public_sha256": "0be8daf613e1b97fd9f22f87e13299d1270833fddf8c6186e32fc0e252fd9457",
+      "public_size": 2475,
+      "redacted": false
+    }
+  ],
+  "original_private_zip_sha256": "18d072513726fc1befa413804986c20f00cc896de68119ab795283cd16bc3a47",
+  "parent_checkpoint": "2026-11-21",
+  "parent_commit": "a3ff35da8d298238a502f4239e96bbe9b89e3eb7",
+  "publication_status": "PUBLIC_REVIEW_NOT_DEPLOYABLE",
+  "redaction_policy": "Replace literal device serial and private prestage directory instance suffix; do not change original production pins. Omit original ZIP, private baseline, dialplan content and runtime state.",
+  "unchanged_recovery_core_hashes": {
+    "qdc507-adb-recover-once-memoryfix-v2.py": "9d656bea91419f5a46e3e4a4ac6b85163f61d67929f48030b3e2292e3c5888a6",
+    "qdc507-coldboot-memoryfix-v221.py": "cb12e806767ede5007b484b598455d60388a1989e09be9b5ac10f0bb48f09756",
+    "qdc507-guard16-runtime-memoryfix-v2.py": "f7f076f9944c0ef85020785b1b308c98597fd55cb1035ab177447bc239bd6b12",
+    "qdc507-usb-recover-memoryfix-v22.sh": "a86b873982209df25a51ee3bf370b2cc651b80d9d4e5a9239cc940aee61826a4"
+  },
+  "version": "V44_EVENT_PRODUCTION"
+}

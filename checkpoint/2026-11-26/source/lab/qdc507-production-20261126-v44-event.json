@@ -1,0 +1,26 @@
+{
+  "acceptance": {
+    "adb_automatic_reset_live": "pending",
+    "adb_reset_precheck": "passed",
+    "continuous_call_179s": "passed",
+    "device_reboot_usb_reenumeration": "passed",
+    "event_voice": "passed",
+    "nas_coldboot": "pending",
+    "physical_power_disconnect": "pending",
+    "post_usb_recovery_call": "passed"
+  },
+  "date": "2026-11-26",
+  "entry_sha256": "399dbeabf4bed2f145344c24b22e587e0e7ffe7b7e52aedaafc00719da43ce06",
+  "format": "qdc507-production-20261126-v44-event-v1",
+  "history_release_sha256": "1127bfe7ee6b3f25905bb4d1f2fe4eac9cba20ca518a6bd4be6cd44eb4007ec2",
+  "notes": "Current DSM 7.2.2 V221 production: retired DSM7.1 hotplug coordinator from USB SIM-swap path; outer USB wrapper directly invokes pinned OneClick and preserves the V221 shared coordination lock. Historical 2026-11-20 and earlier 2026-11-21 manifests unchanged. Real USB/SIM-swap and coldboot after this change NOT yet tested.",
+  "source_sha256": {
+    "qdc507-coldboot-memoryfix-v22.py": "35050d08aef00751bc1419e74f73520538f3a5a49210b0a3ce2bb69fdab8ce01",
+    "qdc507-device-node-sync-memoryfix-v22.py": "d5d7e509686645146568029fd608005b8bfbb04cf3249c0fa097201e3d021e9f",
+    "qdc507-dynusb-oneclick-memoryfix-v22.py": "68ef9ef26f84e91d012a32bbe4a23df3674a121a1e835189c6f145b2a4712185",
+    "qdc507-guard16-runtime-memoryfix-v2.py": "f7f076f9944c0ef85020785b1b308c98597fd55cb1035ab177447bc239bd6b12",
+    "qdc507-usb-recover-memoryfix-v22.sh": "a86b873982209df25a51ee3bf370b2cc651b80d9d4e5a9239cc940aee61826a4",
+    "qdc507-v7-d5-clock8-guard16-ab-dynusb-v1.py": "9e9398a77e39d711b0009dbc5938a18c1f9387925f3c6541ae215331d9a9b730"
+  },
+  "v44_runtime_sha256": "c00b3504649210a1bf3f3d11b13cb66f5c85d2f57b962b7c4ff4cdbbaae267b0"
+}
